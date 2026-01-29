@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Dashboard</title>
+    <style>
+        :root {
+            --bg-primary: #0f0f1a;
+            --bg-secondary: #1a1a2e;
+            --bg-card: #16213e;
+            --border: #2d3748;
+            --text-primary: #e2e8f0;
+            --text-secondary: #a0aec0;
+            --text-muted: #718096;
+            --accent-teal: #38b2ac;
+            --accent-cyan: #0bc5ea;
+            --accent-coral: #fc8181;
+            --accent-orange: #f6ad55;
+            --accent-green: #68d391;
+            --accent-purple: #b794f4;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1.5rem;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header h1 {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .status-indicators {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--text-muted);
+        }
+
+        .status-dot.ok { background: var(--accent-green); }
+        .status-dot.error { background: var(--accent-coral); }
+        .status-dot.warning { background: var(--accent-orange); }
+        .status-dot.loading { animation: pulse 1s infinite; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .refresh-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.2s;
+        }
+
+        .refresh-btn:hover {
+            background: var(--bg-secondary);
+            border-color: var(--accent-teal);
+        }
+
+        .refresh-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .refresh-btn .spinner {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .last-updated {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Grid */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+        }
+
+        @media (max-width: 900px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            min-height: 300px;
+        }
+
+        .card.error {
+            border-color: var(--accent-coral);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .card-title {
+            font-size: 1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card-badge {
+            font-size: 0.75rem;
+            padding: 0.125rem 0.5rem;
+            border-radius: 9999px;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+        }
+
+        .card-content {
+            max-height: 350px;
+            overflow-y: auto;
+        }
+
+        /* Items */
+        .item {
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border-left: 3px solid transparent;
+        }
+
+        .item:last-child {
+            margin-bottom: 0;
+        }
+
+        .item.dirty { border-left-color: var(--accent-orange); }
+        .item.overdue { border-left-color: var(--accent-coral); }
+        .item.today { border-left-color: var(--accent-teal); }
+        .item.in-progress { border-left-color: var(--accent-cyan); }
+
+        .item-title {
+            font-weight: 500;
+            font-size: 0.9rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .item-meta {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 0.125rem 0.375rem;
+            background: var(--bg-primary);
+            border-radius: 4px;
+            font-size: 0.7rem;
+        }
+
+        .tag.priority-4 { color: var(--accent-coral); }
+        .tag.priority-3 { color: var(--accent-orange); }
+        .tag.priority-2 { color: #ecc94b; }
+
+        .commit {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            padding: 0.25rem 0;
+        }
+
+        .commit-hash {
+            color: var(--accent-purple);
+        }
+
+        /* Empty States */
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Loading */
+        .skeleton {
+            background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-card) 50%, var(--bg-secondary) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            border-radius: 6px;
+            height: 60px;
+            margin-bottom: 0.5rem;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        /* Error */
+        .error-message {
+            background: rgba(252, 129, 129, 0.1);
+            border: 1px solid var(--accent-coral);
+            border-radius: 8px;
+            padding: 1rem;
+            color: var(--accent-coral);
+            font-size: 0.875rem;
+        }
+
+        /* Setup prompt */
+        .setup-prompt {
+            background: rgba(56, 178, 172, 0.1);
+            border: 1px solid var(--accent-teal);
+            border-radius: 8px;
+            padding: 1rem;
+            font-size: 0.875rem;
+        }
+
+        .setup-prompt code {
+            background: var(--bg-primary);
+            padding: 0.125rem 0.375rem;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🎯 Project Dashboard</h1>
+            <div class="header-right">
+                <div class="status-indicators">
+                    <div class="status-dot loading" id="status-git" title="Git"></div>
+                    <div class="status-dot loading" id="status-todoist" title="Todoist"></div>
+                    <div class="status-dot loading" id="status-kanban" title="Kanban"></div>
+                    <div class="status-dot loading" id="status-linear" title="Linear"></div>
+                </div>
+                <button class="refresh-btn" id="refresh-btn" onclick="refreshDashboard()">
+                    <span id="refresh-icon">↻</span>
+                    Refresh
+                </button>
+                <span class="last-updated" id="last-updated">Loading...</span>
+            </div>
+        </header>
+
+        <main class="dashboard-grid">
+            <!-- Git Card -->
+            <div class="card" id="git-card">
+                <div class="card-header">
+                    <span class="card-title">🚀 Git Repos</span>
+                    <span class="card-badge" id="git-count">-</span>
+                </div>
+                <div class="card-content" id="git-content">
+                    <div class="skeleton"></div>
+                    <div class="skeleton"></div>
+                    <div class="skeleton"></div>
+                </div>
+            </div>
+
+            <!-- Todoist Card -->
+            <div class="card" id="todoist-card">
+                <div class="card-header">
+                    <span class="card-title">📋 Todoist</span>
+                    <span class="card-badge" id="todoist-count">-</span>
+                </div>
+                <div class="card-content" id="todoist-content">
+                    <div class="skeleton"></div>
+                    <div class="skeleton"></div>
+                    <div class="skeleton"></div>
+                </div>
+            </div>
+
+            <!-- Linear Card -->
+            <div class="card" id="linear-card">
+                <div class="card-header">
+                    <span class="card-title">📊 Linear</span>
+                    <span class="card-badge" id="linear-count">-</span>
+                </div>
+                <div class="card-content" id="linear-content">
+                    <div class="skeleton"></div>
+                    <div class="skeleton"></div>
+                </div>
+            </div>
+
+            <!-- Kanban Card -->
+            <div class="card" id="kanban-card">
+                <div class="card-header">
+                    <span class="card-title">🎯 Kanban</span>
+                    <span class="card-badge" id="kanban-count">-</span>
+                </div>
+                <div class="card-content" id="kanban-content">
+                    <div class="skeleton"></div>
+                    <div class="skeleton"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let refreshInterval = 300000; // 5 minutes default
+        let refreshTimer = null;
+
+        async function refreshDashboard() {
+            const btn = document.getElementById('refresh-btn');
+            const icon = document.getElementById('refresh-icon');
+            
+            btn.disabled = true;
+            icon.classList.add('spinner');
+
+            // Set all status dots to loading
+            ['git', 'todoist', 'kanban', 'linear'].forEach(source => {
+                document.getElementById(`status-${source}`).className = 'status-dot loading';
+            });
+
+            try {
+                const response = await fetch('/api/dashboard');
+                const data = await response.json();
+                
+                // Update refresh interval from server
+                if (data.refresh_interval) {
+                    refreshInterval = data.refresh_interval * 1000;
+                }
+
+                // Update last updated
+                const timestamp = new Date(data.timestamp);
+                document.getElementById('last-updated').textContent = 
+                    `Updated: ${timestamp.toLocaleTimeString()}`;
+
+                // Render each source
+                renderGit(data.sources.git);
+                renderTodoist(data.sources.todoist);
+                renderKanban(data.sources.kanban);
+                renderLinear(data.sources.linear);
+
+            } catch (error) {
+                console.error('Dashboard fetch error:', error);
+                document.getElementById('last-updated').textContent = 'Error loading data';
+            } finally {
+                btn.disabled = false;
+                icon.classList.remove('spinner');
+                
+                // Schedule next refresh
+                if (refreshTimer) clearTimeout(refreshTimer);
+                refreshTimer = setTimeout(refreshDashboard, refreshInterval);
+            }
+        }
+
+        function setStatus(source, status) {
+            const dot = document.getElementById(`status-${source}`);
+            dot.className = 'status-dot ' + status;
+        }
+
+        function renderGit(data) {
+            const content = document.getElementById('git-content');
+            const count = document.getElementById('git-count');
+            
+            if (data.status === 'error') {
+                setStatus('git', 'error');
+                content.innerHTML = `<div class="error-message">${data.error}</div>`;
+                return;
+            }
+
+            setStatus('git', 'ok');
+            
+            if (!data.repos || data.repos.length === 0) {
+                content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div>No repos found</div>';
+                count.textContent = '0';
+                return;
+            }
+
+            const activeRepos = data.repos.filter(r => r.commit_count > 0 || r.is_dirty);
+            count.textContent = activeRepos.length + ' active';
+
+            content.innerHTML = data.repos.map(repo => {
+                const classes = ['item'];
+                if (repo.is_dirty) classes.push('dirty');
+                
+                let meta = [];
+                if (repo.branch) meta.push(`<span class="tag">${repo.branch}</span>`);
+                if (repo.commit_count) meta.push(`${repo.commit_count} commits`);
+                if (repo.is_dirty) meta.push('⚠️ uncommitted');
+                if (repo.ahead) meta.push(`↑${repo.ahead}`);
+                if (repo.behind) meta.push(`↓${repo.behind}`);
+
+                const commits = repo.commits.slice(0, 3).map(c => {
+                    const [hash, ...msg] = c.split(' ');
+                    return `<div class="commit"><span class="commit-hash">${hash}</span> ${msg.join(' ')}</div>`;
+                }).join('');
+
+                return `
+                    <div class="${classes.join(' ')}">
+                        <div class="item-title">${repo.name}</div>
+                        <div class="item-meta">${meta.join(' · ')}</div>
+                        ${commits}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderTodoist(data) {
+            const content = document.getElementById('todoist-content');
+            const count = document.getElementById('todoist-count');
+
+            if (data.status === 'not_configured') {
+                setStatus('todoist', 'warning');
+                content.innerHTML = `
+                    <div class="setup-prompt">
+                        <p>Todoist not configured.</p>
+                        <p>Add your token to <code>config.yaml</code></p>
+                    </div>
+                `;
+                return;
+            }
+
+            if (data.status === 'error') {
+                setStatus('todoist', 'error');
+                content.innerHTML = `<div class="error-message">${data.error}</div>`;
+                return;
+            }
+
+            setStatus('todoist', 'ok');
+
+            if (!data.tasks || data.tasks.length === 0) {
+                content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🎉</div>No tasks!</div>';
+                count.textContent = '0';
+                return;
+            }
+
+            const overdue = data.tasks.filter(t => t.is_overdue).length;
+            const today = data.tasks.filter(t => t.is_today).length;
+            count.textContent = overdue ? `${overdue} overdue` : `${today} today`;
+
+            content.innerHTML = data.tasks.slice(0, 10).map(task => {
+                const classes = ['item'];
+                if (task.is_overdue) classes.push('overdue');
+                else if (task.is_today) classes.push('today');
+
+                const priorityClass = task.priority > 1 ? `priority-${task.priority}` : '';
+                const priorityIcon = task.priority === 4 ? '🔴' : task.priority === 3 ? '🟠' : task.priority === 2 ? '🟡' : '';
+
+                return `
+                    <div class="${classes.join(' ')}">
+                        <div class="item-title">${priorityIcon} ${task.content}</div>
+                        <div class="item-meta">
+                            <span class="tag">${task.project}</span>
+                            ${task.due_date ? `<span>${task.due_date}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderKanban(data) {
+            const content = document.getElementById('kanban-content');
+            const count = document.getElementById('kanban-count');
+
+            if (data.status === 'unavailable') {
+                setStatus('kanban', 'warning');
+                content.innerHTML = `
+                    <div class="setup-prompt">
+                        <p>Kanban board not running.</p>
+                        <p>Start it at <code>localhost:8888</code></p>
+                    </div>
+                `;
+                return;
+            }
+
+            if (data.status === 'error') {
+                setStatus('kanban', 'error');
+                content.innerHTML = `<div class="error-message">${data.error}</div>`;
+                return;
+            }
+
+            setStatus('kanban', 'ok');
+
+            const inProgress = data.by_column['in-progress'] || [];
+            const ready = data.by_column['ready'] || [];
+            count.textContent = `${inProgress.length} active`;
+
+            if (inProgress.length === 0 && ready.length === 0) {
+                content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">😴</div>Nothing in progress</div>';
+                return;
+            }
+
+            let html = '';
+
+            if (inProgress.length > 0) {
+                html += '<div style="margin-bottom: 1rem;"><strong style="color: var(--accent-cyan);">In Progress</strong></div>';
+                html += inProgress.map(task => `
+                    <div class="item in-progress">
+                        <div class="item-title">${task.title}</div>
+                        <div class="item-meta">
+                            ${(task.tags || []).map(t => `<span class="tag">${t}</span>`).join('')}
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            if (ready.length > 0) {
+                html += '<div style="margin: 1rem 0 0.5rem;"><strong style="color: var(--text-muted);">Ready</strong></div>';
+                html += ready.slice(0, 5).map(task => `
+                    <div class="item">
+                        <div class="item-title">${task.title}</div>
+                        <div class="item-meta">
+                            ${(task.tags || []).map(t => `<span class="tag">${t}</span>`).join('')}
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            content.innerHTML = html;
+        }
+
+        function renderLinear(data) {
+            const content = document.getElementById('linear-content');
+            const count = document.getElementById('linear-count');
+
+            if (data.status === 'not_configured') {
+                setStatus('linear', 'warning');
+                content.innerHTML = `
+                    <div class="setup-prompt">
+                        <p>Linear not configured.</p>
+                        <p>Add your API key to <code>config.yaml</code></p>
+                    </div>
+                `;
+                count.textContent = '-';
+                return;
+            }
+
+            if (data.status === 'error') {
+                setStatus('linear', 'error');
+                content.innerHTML = `<div class="error-message">${data.error}</div>`;
+                return;
+            }
+
+            setStatus('linear', 'ok');
+
+            if (!data.issues || data.issues.length === 0) {
+                content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✨</div>No issues</div>';
+                count.textContent = '0';
+                return;
+            }
+
+            count.textContent = data.issues.length;
+            content.innerHTML = data.issues.map(issue => `
+                <div class="item">
+                    <div class="item-title">${issue.identifier} ${issue.title}</div>
+                    <div class="item-meta">
+                        <span class="tag">${issue.state}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Initial load
+        refreshDashboard();
+    </script>
+</body>
+</html>
