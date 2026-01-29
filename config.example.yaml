@@ -1,0 +1,30 @@
+# Project Dashboard Configuration
+# Copy to config.yaml and fill in your values
+
+todoist:
+  token: "your-todoist-api-token"
+  # Only show tasks from these projects (leave empty for all)
+  projects:
+    - "Personal"
+    - "Home"
+
+linear:
+  api_key: "lin_api_xxxxxxxxxxxx"
+  # Your Linear team ID (found in team settings URL)
+  team_id: "your-team-id"
+
+git:
+  # Directories to scan for git repos
+  scan_paths:
+    - "~/clawd/projects"
+  # Days of commit history to show
+  history_days: 7
+
+kanban:
+  api_url: "http://localhost:8888/api/tasks"
+
+server:
+  port: 8889
+  host: "0.0.0.0"  # Allow network access
+  # Auto-refresh interval in seconds
+  refresh_interval: 300
