@@ -611,9 +611,37 @@
                 count.textContent = '-';
                 return;
             }
+            if (data.status === 'error') {
+                setStatus('linear', 'error');
+                content.innerHTML = `<div class="error-message">${data.error}</div>`;
+                return;
+            }
             setStatus('linear', 'ok');
-            content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✨</div>No issues</div>';
-            count.textContent = '0';
+
+            if (!data.issues?.length) {
+                content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✨</div>No assigned issues</div>';
+                count.textContent = '0';
+                return;
+            }
+
+            // Count in-progress
+            const inProgress = data.issues.filter(i => i.state_type === 'started').length;
+            count.textContent = inProgress ? `${inProgress} active` : `${data.issues.length} total`;
+
+            content.innerHTML = data.issues.slice(0, 8).map(issue => {
+                const cls = issue.state_type === 'started' ? 'item in-progress' : 'item';
+                const priorityIcon = issue.priority === 1 ? '🔴' : issue.priority === 2 ? '🟠' : issue.priority === 3 ? '🟡' : '';
+                
+                return `
+                    <div class="${cls}">
+                        <div class="item-title">${priorityIcon} ${issue.identifier} ${issue.title}</div>
+                        <div class="item-meta">
+                            <span class="tag">${issue.state}</span>
+                            ${issue.project ? `<span class="tag">${issue.project}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
 
         function renderGitDetails() {

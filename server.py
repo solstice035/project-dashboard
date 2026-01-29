@@ -279,16 +279,97 @@ def fetch_kanban() -> dict[str, Any]:
 
 
 def fetch_linear() -> dict[str, Any]:
-    """Fetch issues from Linear (placeholder for future implementation)."""
-    result = {'status': 'not_configured', 'issues': [], 'error': None}
+    """Fetch issues from Linear."""
+    result = {'status': 'ok', 'issues': [], 'by_status': {}, 'error': None}
     
     api_key = config['linear'].get('api_key', '')
     if not api_key:
+        result['status'] = 'not_configured'
         result['error'] = 'Linear API key not configured'
         return result
     
-    # TODO: Implement Linear API integration
-    # GraphQL endpoint: https://api.linear.app/graphql
+    try:
+        # GraphQL query for assigned issues
+        query = """
+        query {
+            viewer {
+                assignedIssues(first: 50, orderBy: updatedAt) {
+                    nodes {
+                        id
+                        identifier
+                        title
+                        priority
+                        state {
+                            name
+                            type
+                        }
+                        project {
+                            name
+                        }
+                        dueDate
+                        createdAt
+                        updatedAt
+                    }
+                }
+            }
+        }
+        """
+        
+        headers = {
+            'Authorization': api_key,
+            'Content-Type': 'application/json'
+        }
+        
+        resp = requests.post(
+            'https://api.linear.app/graphql',
+            headers=headers,
+            json={'query': query},
+            timeout=10
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        
+        if 'errors' in data:
+            result['status'] = 'error'
+            result['error'] = data['errors'][0].get('message', 'Unknown error')
+            return result
+        
+        issues = data.get('data', {}).get('viewer', {}).get('assignedIssues', {}).get('nodes', [])
+        
+        for issue in issues:
+            state = issue.get('state', {})
+            state_name = state.get('name', 'Unknown')
+            state_type = state.get('type', 'unknown')
+            
+            issue_info = {
+                'id': issue.get('id'),
+                'identifier': issue.get('identifier'),
+                'title': issue.get('title'),
+                'priority': issue.get('priority', 0),
+                'state': state_name,
+                'state_type': state_type,
+                'project': issue.get('project', {}).get('name') if issue.get('project') else None,
+                'due_date': issue.get('dueDate'),
+                'updated_at': issue.get('updatedAt')
+            }
+            result['issues'].append(issue_info)
+            
+            # Group by status
+            if state_name not in result['by_status']:
+                result['by_status'][state_name] = []
+            result['by_status'][state_name].append(issue_info)
+        
+        # Sort by priority (higher = more urgent in Linear: 1=urgent, 4=low, 0=none)
+        result['issues'].sort(key=lambda x: (x['priority'] or 5))
+        
+    except requests.exceptions.RequestException as e:
+        result['status'] = 'error'
+        result['error'] = str(e)
+        logger.error(f"Linear fetch error: {e}")
+    except Exception as e:
+        result['status'] = 'error'
+        result['error'] = str(e)
+        logger.error(f"Linear processing error: {e}")
     
     return result
 
