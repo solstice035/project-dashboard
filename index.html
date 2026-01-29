@@ -237,6 +237,7 @@
             <button class="tab" onclick="switchTab('analytics')">📈 Analytics</button>
             <button class="tab" onclick="switchTab('git-detail')">🚀 Git Details</button>
             <button class="tab" onclick="switchTab('tasks-detail')">📋 Task Details</button>
+            <button class="tab" onclick="switchTab('linear-detail')">📊 Linear Details</button>
         </div>
 
         <!-- Dashboard Tab -->
@@ -343,6 +344,54 @@
                 </div>
             </div>
         </div>
+
+        <!-- Linear Details Tab -->
+        <div id="tab-linear-detail" class="tab-content">
+            <div class="stat-grid" id="linear-stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="linear-stat-total">-</div>
+                    <div class="stat-label">Total Issues</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="linear-stat-inprogress">-</div>
+                    <div class="stat-label">In Progress</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="linear-stat-todo">-</div>
+                    <div class="stat-label">Todo</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="linear-stat-backlog">-</div>
+                    <div class="stat-label">Backlog</div>
+                </div>
+            </div>
+            <div class="dashboard-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">🚀 In Progress</span>
+                    </div>
+                    <div class="card-content" id="linear-inprogress-content" style="max-height: 400px;">
+                        <div class="skeleton"></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">📋 Todo</span>
+                    </div>
+                    <div class="card-content" id="linear-todo-content" style="max-height: 400px;">
+                        <div class="skeleton"></div>
+                    </div>
+                </div>
+                <div class="card full-width">
+                    <div class="card-header">
+                        <span class="card-title">📥 Backlog</span>
+                    </div>
+                    <div class="card-content" id="linear-backlog-content" style="max-height: 400px;">
+                        <div class="skeleton"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -363,6 +412,7 @@
             if (tabId === 'analytics') loadAnalytics();
             if (tabId === 'git-detail') renderGitDetails();
             if (tabId === 'tasks-detail') renderTasksDetails();
+            if (tabId === 'linear-detail') renderLinearDetails();
         }
 
         function setPeriod(days) {
@@ -695,6 +745,56 @@
                     </div>
                 `;
             }).join('');
+        }
+
+        function renderLinearDetails() {
+            if (!dashboardData?.sources?.linear?.issues) {
+                ['linear-inprogress-content', 'linear-todo-content', 'linear-backlog-content'].forEach(id => {
+                    document.getElementById(id).innerHTML = '<div class="empty-state">Load dashboard first</div>';
+                });
+                return;
+            }
+
+            const linear = dashboardData.sources.linear;
+            const issues = linear.issues || [];
+            const byStatus = linear.by_status || {};
+
+            // Update stats
+            const inProgress = issues.filter(i => i.state_type === 'started').length;
+            const todo = (byStatus['Todo'] || []).length;
+            const backlog = (byStatus['Backlog'] || []).length;
+            
+            document.getElementById('linear-stat-total').textContent = issues.length;
+            document.getElementById('linear-stat-inprogress').textContent = inProgress;
+            document.getElementById('linear-stat-todo').textContent = todo;
+            document.getElementById('linear-stat-backlog').textContent = backlog;
+
+            // Render each section
+            const renderIssueList = (issueList) => {
+                if (!issueList?.length) return '<div class="empty-state">None</div>';
+                return issueList.map(issue => {
+                    const priorityIcon = issue.priority === 1 ? '🔴' : issue.priority === 2 ? '🟠' : issue.priority === 3 ? '🟡' : '';
+                    return `
+                        <div class="item">
+                            <div class="item-title">${priorityIcon} ${issue.identifier} ${issue.title}</div>
+                            <div class="item-meta">
+                                ${issue.project ? `<span class="tag">${issue.project}</span>` : ''}
+                                ${issue.due_date ? `Due: ${issue.due_date}` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            };
+
+            // In Progress - filter by state_type
+            const inProgressIssues = issues.filter(i => i.state_type === 'started');
+            document.getElementById('linear-inprogress-content').innerHTML = renderIssueList(inProgressIssues);
+
+            // Todo
+            document.getElementById('linear-todo-content').innerHTML = renderIssueList(byStatus['Todo']);
+
+            // Backlog
+            document.getElementById('linear-backlog-content').innerHTML = renderIssueList(byStatus['Backlog']);
         }
 
         // Initial load
