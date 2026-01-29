@@ -318,6 +318,14 @@
                         <canvas id="chart-kanban"></canvas>
                     </div>
                 </div>
+                <div class="card full-width">
+                    <div class="card-header">
+                        <span class="card-title">📊 Linear Issues</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="chart-linear"></canvas>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -401,6 +409,7 @@
         let dashboardData = null;
         let gitChart = null;
         let kanbanChart = null;
+        let linearChart = null;
 
         function switchTab(tabId) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -491,6 +500,7 @@
         function renderCharts(data) {
             const gitData = data.git || [];
             const kanbanData = data.kanban || [];
+            const linearData = data.linear || [];
 
             // Git Chart
             const gitCtx = document.getElementById('chart-git').getContext('2d');
@@ -533,6 +543,54 @@
                         { label: 'Ready', data: kanbanData.map(d => d.avg_ready || 0), borderColor: '#68d391', tension: 0.3 },
                         { label: 'In Progress', data: kanbanData.map(d => d.avg_in_progress || 0), borderColor: '#0bc5ea', tension: 0.3 },
                         { label: 'Done', data: kanbanData.map(d => d.avg_done || 0), borderColor: '#b794f4', tension: 0.3 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { color: '#a0aec0', boxWidth: 12 } } },
+                    scales: {
+                        x: { grid: { color: '#2d3748' }, ticks: { color: '#718096' } },
+                        y: { grid: { color: '#2d3748' }, ticks: { color: '#718096' }, beginAtZero: true }
+                    }
+                }
+            });
+
+            // Linear Chart
+            const linearCtx = document.getElementById('chart-linear').getContext('2d');
+            if (linearChart) linearChart.destroy();
+            
+            linearChart = new Chart(linearCtx, {
+                type: 'line',
+                data: {
+                    labels: linearData.map(d => new Date(d.date).toLocaleDateString('en-GB', {day: 'numeric', month: 'short'})),
+                    datasets: [
+                        { 
+                            label: 'Total Issues', 
+                            data: linearData.map(d => d.avg_total || 0), 
+                            borderColor: '#38b2ac',
+                            backgroundColor: 'rgba(56, 178, 172, 0.1)',
+                            fill: true,
+                            tension: 0.3 
+                        },
+                        { 
+                            label: 'In Progress', 
+                            data: linearData.map(d => d.statuses?.['In Progress'] || 0), 
+                            borderColor: '#0bc5ea', 
+                            tension: 0.3 
+                        },
+                        { 
+                            label: 'Todo', 
+                            data: linearData.map(d => d.statuses?.['Todo'] || 0), 
+                            borderColor: '#f6ad55', 
+                            tension: 0.3 
+                        },
+                        { 
+                            label: 'Backlog', 
+                            data: linearData.map(d => d.statuses?.['Backlog'] || 0), 
+                            borderColor: '#718096', 
+                            tension: 0.3 
+                        }
                     ]
                 },
                 options: {

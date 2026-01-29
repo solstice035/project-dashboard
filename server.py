@@ -427,6 +427,11 @@ def get_dashboard():
                 db.store_todoist_snapshot(results['todoist'].get('tasks', []))
             if results['kanban'].get('status') == 'ok':
                 db.store_kanban_snapshot(results['kanban'].get('by_column', {}))
+            if results['linear'].get('status') == 'ok':
+                db.store_linear_snapshot(
+                    results['linear'].get('issues', []),
+                    results['linear'].get('by_status', {})
+                )
             # Update daily aggregates
             db.update_daily_stats(results['git'], results['todoist'], results['kanban'])
         except Exception as e:
@@ -457,7 +462,8 @@ def get_trends():
         'days': days,
         'git': db.get_git_trends(days),
         'todoist': db.get_todoist_trends(days),
-        'kanban': db.get_kanban_trends(days)
+        'kanban': db.get_kanban_trends(days),
+        'linear': db.get_linear_trends(days)
     })
 
 

@@ -115,6 +115,25 @@ def store_kanban_snapshot(by_column: dict) -> None:
         logger.error(f"Failed to store kanban snapshot: {e}")
 
 
+def store_linear_snapshot(issues: list[dict], by_status: dict) -> None:
+    """Store Linear issues snapshot."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO dashboard_linear_snapshots
+                (total_issues, by_status, by_assignee)
+                VALUES (%s, %s, %s)
+            """, (
+                len(issues),
+                json.dumps({k: len(v) for k, v in by_status.items()}),
+                json.dumps({})  # Could add assignee grouping later
+            ))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Failed to store linear snapshot: {e}")
+
+
 def update_daily_stats(git_data: dict, todoist_data: dict, kanban_data: dict) -> None:
     """Update daily aggregate stats."""
     try:
@@ -217,6 +236,40 @@ def get_kanban_trends(days: int = 30) -> list[dict]:
             return [dict(row) for row in cur.fetchall()]
     except Exception as e:
         logger.error(f"Failed to get kanban trends: {e}")
+        return []
+
+
+def get_linear_trends(days: int = 30) -> list[dict]:
+    """Get Linear issues trends over time."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT 
+                    DATE(snapshot_at) as date,
+                    AVG(total_issues) as avg_total,
+                    by_status
+                FROM dashboard_linear_snapshots
+                WHERE snapshot_at >= CURRENT_DATE - INTERVAL '%s days'
+                GROUP BY DATE(snapshot_at), by_status
+                ORDER BY date
+            """, (days,))
+            rows = cur.fetchall()
+            
+            # Aggregate by date
+            by_date = {}
+            for row in rows:
+                d = str(row['date'])
+                if d not in by_date:
+                    by_date[d] = {'date': d, 'avg_total': 0, 'statuses': {}}
+                by_date[d]['avg_total'] = float(row['avg_total'] or 0)
+                if row['by_status']:
+                    for status, count in row['by_status'].items():
+                        by_date[d]['statuses'][status] = count
+            
+            return list(by_date.values())
+    except Exception as e:
+        logger.error(f"Failed to get linear trends: {e}")
         return []
 
 
