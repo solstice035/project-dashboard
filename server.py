@@ -244,13 +244,14 @@ def fetch_todoist() -> dict[str, Any]:
 
 
 def fetch_kanban() -> dict[str, Any]:
-    """Fetch tasks from Kanban board."""
-    result = {'status': 'ok', 'tasks': [], 'by_column': {}, 'error': None}
+    """Fetch tasks from Kanban board API, with PostgreSQL fallback."""
+    result = {'status': 'ok', 'tasks': [], 'by_column': {}, 'error': None, 'source': 'api'}
     
     api_url = config['kanban'].get('api_url', 'http://localhost:8888/api/tasks')
     
+    # Try API first
     try:
-        resp = requests.get(api_url, timeout=5)
+        resp = requests.get(api_url, timeout=3)
         resp.raise_for_status()
         tasks = resp.json()
         
@@ -263,17 +264,45 @@ def fetch_kanban() -> dict[str, Any]:
                 result['by_column'][col] = []
             result['by_column'][col].append(task)
         
-    except requests.exceptions.ConnectionError:
-        result['status'] = 'unavailable'
-        result['error'] = 'Kanban board not running'
+        return result
+        
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        logger.info("Kanban API unavailable, falling back to PostgreSQL")
     except requests.exceptions.RequestException as e:
-        result['status'] = 'error'
-        result['error'] = str(e)
-        logger.error(f"Kanban fetch error: {e}")
+        logger.warning(f"Kanban API error, trying PostgreSQL: {e}")
+    
+    # Fallback to PostgreSQL
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        
+        conn = psycopg2.connect(dbname='nick', host='localhost', cursor_factory=RealDictCursor)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, title, description, column_name as column, tags, 
+                   priority, position, created_at, updated_at
+            FROM kanban_tasks 
+            ORDER BY column_name, position
+        """)
+        tasks = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        
+        result['tasks'] = tasks
+        result['source'] = 'database'
+        
+        # Group by column
+        for task in tasks:
+            col = task.get('column', 'unknown')
+            if col not in result['by_column']:
+                result['by_column'][col] = []
+            result['by_column'][col].append(task)
+        
+        logger.info(f"Loaded {len(tasks)} tasks from PostgreSQL")
+        
     except Exception as e:
         result['status'] = 'error'
-        result['error'] = str(e)
-        logger.error(f"Kanban processing error: {e}")
+        result['error'] = f'Both API and database unavailable: {e}'
+        logger.error(f"Kanban PostgreSQL fallback error: {e}")
     
     return result
 
