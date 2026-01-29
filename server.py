@@ -20,7 +20,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import yaml
 import requests
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, send_from_directory, request
+
+# Import database module
+try:
+    import database as db
+    DB_AVAILABLE = True
+except ImportError:
+    DB_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(
@@ -310,6 +317,7 @@ def health_check():
 def get_dashboard():
     """Fetch all dashboard data in parallel."""
     start_time = datetime.now()
+    store_snapshot = request.args.get('store', 'true').lower() == 'true'
     
     # Fetch all sources in parallel
     results = {}
@@ -329,6 +337,20 @@ def get_dashboard():
                 logger.error(f"Error fetching {source}: {e}")
                 results[source] = {'status': 'error', 'error': str(e)}
     
+    # Store snapshots to database (for analytics)
+    if DB_AVAILABLE and store_snapshot:
+        try:
+            if results['git'].get('status') == 'ok':
+                db.store_git_snapshot(results['git'].get('repos', []))
+            if results['todoist'].get('status') == 'ok':
+                db.store_todoist_snapshot(results['todoist'].get('tasks', []))
+            if results['kanban'].get('status') == 'ok':
+                db.store_kanban_snapshot(results['kanban'].get('by_column', {}))
+            # Update daily aggregates
+            db.update_daily_stats(results['git'], results['todoist'], results['kanban'])
+        except Exception as e:
+            logger.error(f"Failed to store snapshots: {e}")
+    
     # Build response
     elapsed = (datetime.now() - start_time).total_seconds()
     
@@ -336,7 +358,55 @@ def get_dashboard():
         'timestamp': datetime.now().isoformat(),
         'fetch_time_seconds': round(elapsed, 2),
         'refresh_interval': config['server'].get('refresh_interval', 300),
+        'db_available': DB_AVAILABLE,
         'sources': results
+    })
+
+
+@app.route('/api/analytics/trends')
+def get_trends():
+    """Get trend data for all sources."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    days = request.args.get('days', 30, type=int)
+    days = min(max(days, 1), 365)  # Clamp between 1-365
+    
+    return jsonify({
+        'days': days,
+        'git': db.get_git_trends(days),
+        'todoist': db.get_todoist_trends(days),
+        'kanban': db.get_kanban_trends(days)
+    })
+
+
+@app.route('/api/analytics/daily')
+def get_daily():
+    """Get daily summary stats."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    days = request.args.get('days', 7, type=int)
+    days = min(max(days, 1), 90)
+    
+    return jsonify({
+        'days': days,
+        'stats': db.get_daily_summary(days)
+    })
+
+
+@app.route('/api/analytics/repo/<repo_name>')
+def get_repo_analytics(repo_name):
+    """Get analytics for a specific repo."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    days = request.args.get('days', 30, type=int)
+    
+    return jsonify({
+        'repo': repo_name,
+        'days': days,
+        'history': db.get_repo_history(repo_name, days)
     })
 
 

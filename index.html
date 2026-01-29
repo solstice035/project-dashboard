@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Project Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --bg-primary: #0f0f1a;
@@ -21,271 +22,196 @@
             --accent-purple: #b794f4;
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
             min-height: 100vh;
             line-height: 1.5;
         }
 
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 1.5rem;
-        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
 
         /* Header */
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
             padding-bottom: 1rem;
             border-bottom: 1px solid var(--border);
         }
 
-        .header h1 {
-            font-size: 1.75rem;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
+        .header h1 { font-size: 1.75rem; font-weight: 600; }
 
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
+        .header-right { display: flex; align-items: center; gap: 1rem; }
 
-        .status-indicators {
-            display: flex;
-            gap: 0.5rem;
-        }
+        .status-indicators { display: flex; gap: 0.5rem; }
 
         .status-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
+            width: 10px; height: 10px; border-radius: 50%;
             background: var(--text-muted);
         }
-
         .status-dot.ok { background: var(--accent-green); }
         .status-dot.error { background: var(--accent-coral); }
         .status-dot.warning { background: var(--accent-orange); }
         .status-dot.loading { animation: pulse 1s infinite; }
 
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
         .refresh-btn {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            color: var(--text-primary);
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.875rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            transition: all 0.2s;
+            background: var(--bg-card); border: 1px solid var(--border);
+            color: var(--text-primary); padding: 0.5rem 1rem;
+            border-radius: 6px; cursor: pointer; font-size: 0.875rem;
+            display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;
+        }
+        .refresh-btn:hover { background: var(--bg-secondary); border-color: var(--accent-teal); }
+        .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .refresh-btn .spinner { animation: spin 1s linear infinite; }
+
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        .last-updated { font-size: 0.75rem; color: var(--text-muted); }
+
+        /* Tabs */
+        .tabs {
+            display: flex; gap: 0.5rem; margin-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;
         }
 
-        .refresh-btn:hover {
-            background: var(--bg-secondary);
-            border-color: var(--accent-teal);
+        .tab {
+            background: transparent; border: none; color: var(--text-secondary);
+            padding: 0.75rem 1.5rem; cursor: pointer; font-size: 0.9rem;
+            border-radius: 6px 6px 0 0; transition: all 0.2s;
+        }
+        .tab:hover { color: var(--text-primary); background: var(--bg-secondary); }
+        .tab.active {
+            color: var(--accent-teal); background: var(--bg-card);
+            border-bottom: 2px solid var(--accent-teal);
         }
 
-        .refresh-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .refresh-btn .spinner {
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        .last-updated {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
 
         /* Grid */
         .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 1.5rem;
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem;
         }
-
-        @media (max-width: 900px) {
-            .dashboard-grid {
-                grid-template-columns: 1fr;
-            }
-        }
+        @media (max-width: 900px) { .dashboard-grid { grid-template-columns: 1fr; } }
 
         /* Cards */
         .card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.25rem;
-            min-height: 300px;
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 12px; padding: 1.25rem; min-height: 300px;
         }
-
-        .card.error {
-            border-color: var(--accent-coral);
-        }
+        .card.error { border-color: var(--accent-coral); }
+        .card.full-width { grid-column: 1 / -1; }
 
         .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
-            padding-bottom: 0.75rem;
-            border-bottom: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);
         }
 
         .card-title {
-            font-size: 1rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
+            font-size: 1rem; font-weight: 600;
+            display: flex; align-items: center; gap: 0.5rem;
         }
 
         .card-badge {
-            font-size: 0.75rem;
-            padding: 0.125rem 0.5rem;
-            border-radius: 9999px;
-            background: var(--bg-secondary);
-            color: var(--text-secondary);
+            font-size: 0.75rem; padding: 0.125rem 0.5rem;
+            border-radius: 9999px; background: var(--bg-secondary); color: var(--text-secondary);
         }
 
-        .card-content {
-            max-height: 350px;
-            overflow-y: auto;
-        }
+        .card-content { max-height: 350px; overflow-y: auto; }
 
         /* Items */
         .item {
-            padding: 0.75rem;
-            margin-bottom: 0.5rem;
-            background: var(--bg-secondary);
-            border-radius: 8px;
+            padding: 0.75rem; margin-bottom: 0.5rem;
+            background: var(--bg-secondary); border-radius: 8px;
             border-left: 3px solid transparent;
         }
-
-        .item:last-child {
-            margin-bottom: 0;
-        }
-
+        .item:last-child { margin-bottom: 0; }
         .item.dirty { border-left-color: var(--accent-orange); }
         .item.overdue { border-left-color: var(--accent-coral); }
         .item.today { border-left-color: var(--accent-teal); }
         .item.in-progress { border-left-color: var(--accent-cyan); }
 
-        .item-title {
-            font-weight: 500;
-            font-size: 0.9rem;
-            margin-bottom: 0.25rem;
-        }
+        .item-title { font-weight: 500; font-size: 0.9rem; margin-bottom: 0.25rem; }
 
         .item-meta {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
+            font-size: 0.75rem; color: var(--text-muted);
+            display: flex; flex-wrap: wrap; gap: 0.5rem;
         }
 
         .tag {
-            display: inline-block;
-            padding: 0.125rem 0.375rem;
-            background: var(--bg-primary);
-            border-radius: 4px;
-            font-size: 0.7rem;
+            display: inline-block; padding: 0.125rem 0.375rem;
+            background: var(--bg-primary); border-radius: 4px; font-size: 0.7rem;
         }
-
         .tag.priority-4 { color: var(--accent-coral); }
         .tag.priority-3 { color: var(--accent-orange); }
         .tag.priority-2 { color: #ecc94b; }
 
         .commit {
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-            padding: 0.25rem 0;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.8rem; color: var(--text-secondary); padding: 0.25rem 0;
         }
+        .commit-hash { color: var(--accent-purple); }
 
-        .commit-hash {
-            color: var(--accent-purple);
-        }
+        /* Empty/Error States */
+        .empty-state { text-align: center; padding: 2rem; color: var(--text-muted); }
+        .empty-state-icon { font-size: 2rem; margin-bottom: 0.5rem; }
 
-        /* Empty States */
-        .empty-state {
-            text-align: center;
-            padding: 2rem;
-            color: var(--text-muted);
-        }
-
-        .empty-state-icon {
-            font-size: 2rem;
-            margin-bottom: 0.5rem;
-        }
-
-        /* Loading */
         .skeleton {
             background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-card) 50%, var(--bg-secondary) 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
-            border-radius: 6px;
-            height: 60px;
-            margin-bottom: 0.5rem;
+            background-size: 200% 100%; animation: shimmer 1.5s infinite;
+            border-radius: 6px; height: 60px; margin-bottom: 0.5rem;
         }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
-        @keyframes shimmer {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
-        }
-
-        /* Error */
         .error-message {
-            background: rgba(252, 129, 129, 0.1);
-            border: 1px solid var(--accent-coral);
-            border-radius: 8px;
-            padding: 1rem;
-            color: var(--accent-coral);
-            font-size: 0.875rem;
+            background: rgba(252, 129, 129, 0.1); border: 1px solid var(--accent-coral);
+            border-radius: 8px; padding: 1rem; color: var(--accent-coral); font-size: 0.875rem;
         }
 
-        /* Setup prompt */
         .setup-prompt {
-            background: rgba(56, 178, 172, 0.1);
-            border: 1px solid var(--accent-teal);
-            border-radius: 8px;
-            padding: 1rem;
-            font-size: 0.875rem;
+            background: rgba(56, 178, 172, 0.1); border: 1px solid var(--accent-teal);
+            border-radius: 8px; padding: 1rem; font-size: 0.875rem;
+        }
+        .setup-prompt code {
+            background: var(--bg-primary); padding: 0.125rem 0.375rem;
+            border-radius: 4px; font-family: monospace;
         }
 
-        .setup-prompt code {
-            background: var(--bg-primary);
-            padding: 0.125rem 0.375rem;
-            border-radius: 4px;
-            font-family: monospace;
+        /* Analytics */
+        .chart-container { position: relative; height: 250px; }
+
+        .stat-grid {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;
+            margin-bottom: 1.5rem;
         }
+        @media (max-width: 700px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+
+        .stat-card {
+            background: var(--bg-secondary); border-radius: 8px; padding: 1rem; text-align: center;
+        }
+        .stat-value { font-size: 2rem; font-weight: 700; color: var(--accent-teal); }
+        .stat-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; }
+
+        .trend-up { color: var(--accent-green); }
+        .trend-down { color: var(--accent-coral); }
+
+        /* Period selector */
+        .period-selector {
+            display: flex; gap: 0.5rem; margin-bottom: 1rem;
+        }
+        .period-btn {
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            color: var(--text-secondary); padding: 0.375rem 0.75rem;
+            border-radius: 4px; cursor: pointer; font-size: 0.75rem;
+        }
+        .period-btn.active { background: var(--accent-teal); color: var(--bg-primary); border-color: var(--accent-teal); }
     </style>
 </head>
 <body>
@@ -299,119 +225,280 @@
                     <div class="status-dot loading" id="status-kanban" title="Kanban"></div>
                     <div class="status-dot loading" id="status-linear" title="Linear"></div>
                 </div>
-                <button class="refresh-btn" id="refresh-btn" onclick="refreshDashboard()">
-                    <span id="refresh-icon">↻</span>
-                    Refresh
+                <button class="refresh-btn" id="refresh-btn" onclick="refreshAll()">
+                    <span id="refresh-icon">↻</span> Refresh
                 </button>
                 <span class="last-updated" id="last-updated">Loading...</span>
             </div>
         </header>
 
-        <main class="dashboard-grid">
-            <!-- Git Card -->
-            <div class="card" id="git-card">
-                <div class="card-header">
-                    <span class="card-title">🚀 Git Repos</span>
-                    <span class="card-badge" id="git-count">-</span>
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
+            <button class="tab" onclick="switchTab('analytics')">📈 Analytics</button>
+            <button class="tab" onclick="switchTab('git-detail')">🚀 Git Details</button>
+            <button class="tab" onclick="switchTab('tasks-detail')">📋 Task Details</button>
+        </div>
+
+        <!-- Dashboard Tab -->
+        <div id="tab-dashboard" class="tab-content active">
+            <main class="dashboard-grid">
+                <div class="card" id="git-card">
+                    <div class="card-header">
+                        <span class="card-title">🚀 Git Repos</span>
+                        <span class="card-badge" id="git-count">-</span>
+                    </div>
+                    <div class="card-content" id="git-content"><div class="skeleton"></div></div>
                 </div>
-                <div class="card-content" id="git-content">
-                    <div class="skeleton"></div>
-                    <div class="skeleton"></div>
-                    <div class="skeleton"></div>
+                <div class="card" id="todoist-card">
+                    <div class="card-header">
+                        <span class="card-title">📋 Todoist</span>
+                        <span class="card-badge" id="todoist-count">-</span>
+                    </div>
+                    <div class="card-content" id="todoist-content"><div class="skeleton"></div></div>
+                </div>
+                <div class="card" id="linear-card">
+                    <div class="card-header">
+                        <span class="card-title">📊 Linear</span>
+                        <span class="card-badge" id="linear-count">-</span>
+                    </div>
+                    <div class="card-content" id="linear-content"><div class="skeleton"></div></div>
+                </div>
+                <div class="card" id="kanban-card">
+                    <div class="card-header">
+                        <span class="card-title">🎯 Kanban</span>
+                        <span class="card-badge" id="kanban-count">-</span>
+                    </div>
+                    <div class="card-content" id="kanban-content"><div class="skeleton"></div></div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Analytics Tab -->
+        <div id="tab-analytics" class="tab-content">
+            <div class="period-selector">
+                <button class="period-btn active" onclick="setPeriod(7)">7 Days</button>
+                <button class="period-btn" onclick="setPeriod(14)">14 Days</button>
+                <button class="period-btn" onclick="setPeriod(30)">30 Days</button>
+            </div>
+
+            <div class="stat-grid" id="stat-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-commits">-</div>
+                    <div class="stat-label">Total Commits</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-active-repos">-</div>
+                    <div class="stat-label">Active Repos</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-tasks">-</div>
+                    <div class="stat-label">Tasks Today</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-kanban">-</div>
+                    <div class="stat-label">In Progress</div>
                 </div>
             </div>
 
-            <!-- Todoist Card -->
-            <div class="card" id="todoist-card">
-                <div class="card-header">
-                    <span class="card-title">📋 Todoist</span>
-                    <span class="card-badge" id="todoist-count">-</span>
+            <div class="dashboard-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">📈 Git Activity</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="chart-git"></canvas>
+                    </div>
                 </div>
-                <div class="card-content" id="todoist-content">
-                    <div class="skeleton"></div>
-                    <div class="skeleton"></div>
-                    <div class="skeleton"></div>
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">📊 Kanban Flow</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="chart-kanban"></canvas>
+                    </div>
                 </div>
             </div>
+        </div>
 
-            <!-- Linear Card -->
-            <div class="card" id="linear-card">
+        <!-- Git Details Tab -->
+        <div id="tab-git-detail" class="tab-content">
+            <div class="card full-width">
                 <div class="card-header">
-                    <span class="card-title">📊 Linear</span>
-                    <span class="card-badge" id="linear-count">-</span>
+                    <span class="card-title">🚀 All Repositories</span>
                 </div>
-                <div class="card-content" id="linear-content">
-                    <div class="skeleton"></div>
+                <div class="card-content" id="git-detail-content" style="max-height: 600px;">
                     <div class="skeleton"></div>
                 </div>
             </div>
+        </div>
 
-            <!-- Kanban Card -->
-            <div class="card" id="kanban-card">
+        <!-- Tasks Details Tab -->
+        <div id="tab-tasks-detail" class="tab-content">
+            <div class="card full-width">
                 <div class="card-header">
-                    <span class="card-title">🎯 Kanban</span>
-                    <span class="card-badge" id="kanban-count">-</span>
+                    <span class="card-title">📋 All Tasks</span>
                 </div>
-                <div class="card-content" id="kanban-content">
-                    <div class="skeleton"></div>
+                <div class="card-content" id="tasks-detail-content" style="max-height: 600px;">
                     <div class="skeleton"></div>
                 </div>
             </div>
-        </main>
+        </div>
     </div>
 
     <script>
-        let refreshInterval = 300000; // 5 minutes default
+        let refreshInterval = 300000;
         let refreshTimer = null;
+        let currentPeriod = 7;
+        let dashboardData = null;
+        let gitChart = null;
+        let kanbanChart = null;
 
-        async function refreshDashboard() {
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById('tab-' + tabId).classList.add('active');
+
+            if (tabId === 'analytics') loadAnalytics();
+            if (tabId === 'git-detail') renderGitDetails();
+            if (tabId === 'tasks-detail') renderTasksDetails();
+        }
+
+        function setPeriod(days) {
+            currentPeriod = days;
+            document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            loadAnalytics();
+        }
+
+        async function refreshAll() {
             const btn = document.getElementById('refresh-btn');
             const icon = document.getElementById('refresh-icon');
-            
             btn.disabled = true;
             icon.classList.add('spinner');
 
-            // Set all status dots to loading
-            ['git', 'todoist', 'kanban', 'linear'].forEach(source => {
-                document.getElementById(`status-${source}`).className = 'status-dot loading';
+            ['git', 'todoist', 'kanban', 'linear'].forEach(s => {
+                document.getElementById(`status-${s}`).className = 'status-dot loading';
             });
 
             try {
                 const response = await fetch('/api/dashboard');
-                const data = await response.json();
+                dashboardData = await response.json();
                 
-                // Update refresh interval from server
-                if (data.refresh_interval) {
-                    refreshInterval = data.refresh_interval * 1000;
+                if (dashboardData.refresh_interval) {
+                    refreshInterval = dashboardData.refresh_interval * 1000;
                 }
 
-                // Update last updated
-                const timestamp = new Date(data.timestamp);
                 document.getElementById('last-updated').textContent = 
-                    `Updated: ${timestamp.toLocaleTimeString()}`;
+                    `Updated: ${new Date(dashboardData.timestamp).toLocaleTimeString()}`;
 
-                // Render each source
-                renderGit(data.sources.git);
-                renderTodoist(data.sources.todoist);
-                renderKanban(data.sources.kanban);
-                renderLinear(data.sources.linear);
+                renderGit(dashboardData.sources.git);
+                renderTodoist(dashboardData.sources.todoist);
+                renderKanban(dashboardData.sources.kanban);
+                renderLinear(dashboardData.sources.linear);
 
             } catch (error) {
-                console.error('Dashboard fetch error:', error);
-                document.getElementById('last-updated').textContent = 'Error loading data';
+                console.error('Error:', error);
+                document.getElementById('last-updated').textContent = 'Error loading';
             } finally {
                 btn.disabled = false;
                 icon.classList.remove('spinner');
-                
-                // Schedule next refresh
                 if (refreshTimer) clearTimeout(refreshTimer);
-                refreshTimer = setTimeout(refreshDashboard, refreshInterval);
+                refreshTimer = setTimeout(refreshAll, refreshInterval);
             }
         }
 
+        async function loadAnalytics() {
+            try {
+                const resp = await fetch(`/api/analytics/trends?days=${currentPeriod}`);
+                const data = await resp.json();
+                renderCharts(data);
+                updateStats(data);
+            } catch (e) {
+                console.error('Analytics error:', e);
+            }
+        }
+
+        function updateStats(data) {
+            const gitData = data.git || [];
+            const kanbanData = data.kanban || [];
+            
+            const totalCommits = gitData.reduce((sum, d) => sum + (d.total_commits || 0), 0);
+            const activeRepos = gitData.length > 0 ? gitData[gitData.length - 1].repos_with_activity || 0 : 0;
+            
+            document.getElementById('stat-commits').textContent = totalCommits;
+            document.getElementById('stat-active-repos').textContent = activeRepos;
+            
+            if (dashboardData) {
+                const todayTasks = dashboardData.sources.todoist?.tasks?.filter(t => t.is_today).length || 0;
+                const inProgress = Object.keys(dashboardData.sources.kanban?.by_column?.['in-progress'] || {}).length;
+                document.getElementById('stat-tasks').textContent = todayTasks;
+                document.getElementById('stat-kanban').textContent = inProgress;
+            }
+        }
+
+        function renderCharts(data) {
+            const gitData = data.git || [];
+            const kanbanData = data.kanban || [];
+
+            // Git Chart
+            const gitCtx = document.getElementById('chart-git').getContext('2d');
+            if (gitChart) gitChart.destroy();
+            
+            gitChart = new Chart(gitCtx, {
+                type: 'line',
+                data: {
+                    labels: gitData.map(d => new Date(d.date).toLocaleDateString('en-GB', {day: 'numeric', month: 'short'})),
+                    datasets: [{
+                        label: 'Commits',
+                        data: gitData.map(d => d.total_commits || 0),
+                        borderColor: '#38b2ac',
+                        backgroundColor: 'rgba(56, 178, 172, 0.1)',
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: '#2d3748' }, ticks: { color: '#718096' } },
+                        y: { grid: { color: '#2d3748' }, ticks: { color: '#718096' }, beginAtZero: true }
+                    }
+                }
+            });
+
+            // Kanban Chart
+            const kanbanCtx = document.getElementById('chart-kanban').getContext('2d');
+            if (kanbanChart) kanbanChart.destroy();
+            
+            kanbanChart = new Chart(kanbanCtx, {
+                type: 'line',
+                data: {
+                    labels: kanbanData.map(d => new Date(d.date).toLocaleDateString('en-GB', {day: 'numeric', month: 'short'})),
+                    datasets: [
+                        { label: 'Backlog', data: kanbanData.map(d => d.avg_backlog || 0), borderColor: '#718096', tension: 0.3 },
+                        { label: 'Ready', data: kanbanData.map(d => d.avg_ready || 0), borderColor: '#68d391', tension: 0.3 },
+                        { label: 'In Progress', data: kanbanData.map(d => d.avg_in_progress || 0), borderColor: '#0bc5ea', tension: 0.3 },
+                        { label: 'Done', data: kanbanData.map(d => d.avg_done || 0), borderColor: '#b794f4', tension: 0.3 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { color: '#a0aec0', boxWidth: 12 } } },
+                    scales: {
+                        x: { grid: { color: '#2d3748' }, ticks: { color: '#718096' } },
+                        y: { grid: { color: '#2d3748' }, ticks: { color: '#718096' }, beginAtZero: true }
+                    }
+                }
+            });
+        }
+
         function setStatus(source, status) {
-            const dot = document.getElementById(`status-${source}`);
-            dot.className = 'status-dot ' + status;
+            document.getElementById(`status-${source}`).className = 'status-dot ' + status;
         }
 
         function renderGit(data) {
@@ -423,41 +510,25 @@
                 content.innerHTML = `<div class="error-message">${data.error}</div>`;
                 return;
             }
-
             setStatus('git', 'ok');
             
-            if (!data.repos || data.repos.length === 0) {
-                content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div>No repos found</div>';
+            if (!data.repos?.length) {
+                content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div>No repos</div>';
                 count.textContent = '0';
                 return;
             }
 
-            const activeRepos = data.repos.filter(r => r.commit_count > 0 || r.is_dirty);
-            count.textContent = activeRepos.length + ' active';
+            const active = data.repos.filter(r => r.commit_count > 0 || r.is_dirty);
+            count.textContent = active.length + ' active';
 
-            content.innerHTML = data.repos.map(repo => {
-                const classes = ['item'];
-                if (repo.is_dirty) classes.push('dirty');
-                
+            content.innerHTML = data.repos.slice(0, 6).map(repo => {
+                const cls = repo.is_dirty ? 'item dirty' : 'item';
                 let meta = [];
                 if (repo.branch) meta.push(`<span class="tag">${repo.branch}</span>`);
                 if (repo.commit_count) meta.push(`${repo.commit_count} commits`);
-                if (repo.is_dirty) meta.push('⚠️ uncommitted');
-                if (repo.ahead) meta.push(`↑${repo.ahead}`);
-                if (repo.behind) meta.push(`↓${repo.behind}`);
-
-                const commits = repo.commits.slice(0, 3).map(c => {
-                    const [hash, ...msg] = c.split(' ');
-                    return `<div class="commit"><span class="commit-hash">${hash}</span> ${msg.join(' ')}</div>`;
-                }).join('');
-
-                return `
-                    <div class="${classes.join(' ')}">
-                        <div class="item-title">${repo.name}</div>
-                        <div class="item-meta">${meta.join(' · ')}</div>
-                        ${commits}
-                    </div>
-                `;
+                if (repo.is_dirty) meta.push('⚠️');
+                
+                return `<div class="${cls}"><div class="item-title">${repo.name}</div><div class="item-meta">${meta.join(' · ')}</div></div>`;
             }).join('');
         }
 
@@ -467,50 +538,29 @@
 
             if (data.status === 'not_configured') {
                 setStatus('todoist', 'warning');
-                content.innerHTML = `
-                    <div class="setup-prompt">
-                        <p>Todoist not configured.</p>
-                        <p>Add your token to <code>config.yaml</code></p>
-                    </div>
-                `;
+                content.innerHTML = '<div class="setup-prompt">Add token to <code>config.yaml</code></div>';
                 return;
             }
-
             if (data.status === 'error') {
                 setStatus('todoist', 'error');
                 content.innerHTML = `<div class="error-message">${data.error}</div>`;
                 return;
             }
-
             setStatus('todoist', 'ok');
 
-            if (!data.tasks || data.tasks.length === 0) {
+            if (!data.tasks?.length) {
                 content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🎉</div>No tasks!</div>';
                 count.textContent = '0';
                 return;
             }
 
             const overdue = data.tasks.filter(t => t.is_overdue).length;
-            const today = data.tasks.filter(t => t.is_today).length;
-            count.textContent = overdue ? `${overdue} overdue` : `${today} today`;
+            count.textContent = overdue ? `${overdue} overdue` : `${data.tasks.filter(t => t.is_today).length} today`;
 
-            content.innerHTML = data.tasks.slice(0, 10).map(task => {
-                const classes = ['item'];
-                if (task.is_overdue) classes.push('overdue');
-                else if (task.is_today) classes.push('today');
-
-                const priorityClass = task.priority > 1 ? `priority-${task.priority}` : '';
-                const priorityIcon = task.priority === 4 ? '🔴' : task.priority === 3 ? '🟠' : task.priority === 2 ? '🟡' : '';
-
-                return `
-                    <div class="${classes.join(' ')}">
-                        <div class="item-title">${priorityIcon} ${task.content}</div>
-                        <div class="item-meta">
-                            <span class="tag">${task.project}</span>
-                            ${task.due_date ? `<span>${task.due_date}</span>` : ''}
-                        </div>
-                    </div>
-                `;
+            content.innerHTML = data.tasks.slice(0, 8).map(task => {
+                const cls = task.is_overdue ? 'item overdue' : task.is_today ? 'item today' : 'item';
+                const icon = task.priority === 4 ? '🔴' : task.priority === 3 ? '🟠' : task.priority === 2 ? '🟡' : '';
+                return `<div class="${cls}"><div class="item-title">${icon} ${task.content}</div><div class="item-meta"><span class="tag">${task.project}</span>${task.due_date || ''}</div></div>`;
             }).join('');
         }
 
@@ -520,58 +570,34 @@
 
             if (data.status === 'unavailable') {
                 setStatus('kanban', 'warning');
-                content.innerHTML = `
-                    <div class="setup-prompt">
-                        <p>Kanban board not running.</p>
-                        <p>Start it at <code>localhost:8888</code></p>
-                    </div>
-                `;
+                content.innerHTML = '<div class="setup-prompt">Start board at <code>localhost:8888</code></div>';
                 return;
             }
-
             if (data.status === 'error') {
                 setStatus('kanban', 'error');
                 content.innerHTML = `<div class="error-message">${data.error}</div>`;
                 return;
             }
-
             setStatus('kanban', 'ok');
 
             const inProgress = data.by_column['in-progress'] || [];
             const ready = data.by_column['ready'] || [];
             count.textContent = `${inProgress.length} active`;
 
-            if (inProgress.length === 0 && ready.length === 0) {
-                content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">😴</div>Nothing in progress</div>';
+            if (!inProgress.length && !ready.length) {
+                content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">😴</div>Nothing active</div>';
                 return;
             }
 
             let html = '';
-
-            if (inProgress.length > 0) {
-                html += '<div style="margin-bottom: 1rem;"><strong style="color: var(--accent-cyan);">In Progress</strong></div>';
-                html += inProgress.map(task => `
-                    <div class="item in-progress">
-                        <div class="item-title">${task.title}</div>
-                        <div class="item-meta">
-                            ${(task.tags || []).map(t => `<span class="tag">${t}</span>`).join('')}
-                        </div>
-                    </div>
-                `).join('');
+            if (inProgress.length) {
+                html += '<div style="color:var(--accent-cyan);font-size:0.8rem;margin-bottom:0.5rem;">In Progress</div>';
+                html += inProgress.map(t => `<div class="item in-progress"><div class="item-title">${t.title}</div></div>`).join('');
             }
-
-            if (ready.length > 0) {
-                html += '<div style="margin: 1rem 0 0.5rem;"><strong style="color: var(--text-muted);">Ready</strong></div>';
-                html += ready.slice(0, 5).map(task => `
-                    <div class="item">
-                        <div class="item-title">${task.title}</div>
-                        <div class="item-meta">
-                            ${(task.tags || []).map(t => `<span class="tag">${t}</span>`).join('')}
-                        </div>
-                    </div>
-                `).join('');
+            if (ready.length) {
+                html += '<div style="color:var(--text-muted);font-size:0.8rem;margin:0.75rem 0 0.5rem;">Ready</div>';
+                html += ready.slice(0, 3).map(t => `<div class="item"><div class="item-title">${t.title}</div></div>`).join('');
             }
-
             content.innerHTML = html;
         }
 
@@ -581,43 +607,70 @@
 
             if (data.status === 'not_configured') {
                 setStatus('linear', 'warning');
-                content.innerHTML = `
-                    <div class="setup-prompt">
-                        <p>Linear not configured.</p>
-                        <p>Add your API key to <code>config.yaml</code></p>
-                    </div>
-                `;
+                content.innerHTML = '<div class="setup-prompt">Add API key to <code>config.yaml</code></div>';
                 count.textContent = '-';
                 return;
             }
-
-            if (data.status === 'error') {
-                setStatus('linear', 'error');
-                content.innerHTML = `<div class="error-message">${data.error}</div>`;
-                return;
-            }
-
             setStatus('linear', 'ok');
+            content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✨</div>No issues</div>';
+            count.textContent = '0';
+        }
 
-            if (!data.issues || data.issues.length === 0) {
-                content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✨</div>No issues</div>';
-                count.textContent = '0';
+        function renderGitDetails() {
+            const content = document.getElementById('git-detail-content');
+            if (!dashboardData?.sources?.git?.repos) {
+                content.innerHTML = '<div class="empty-state">Load dashboard first</div>';
                 return;
             }
-
-            count.textContent = data.issues.length;
-            content.innerHTML = data.issues.map(issue => `
-                <div class="item">
-                    <div class="item-title">${issue.identifier} ${issue.title}</div>
-                    <div class="item-meta">
-                        <span class="tag">${issue.state}</span>
+            
+            content.innerHTML = dashboardData.sources.git.repos.map(repo => {
+                const cls = repo.is_dirty ? 'item dirty' : 'item';
+                const commits = (repo.commits || []).map(c => {
+                    const [hash, ...msg] = c.split(' ');
+                    return `<div class="commit"><span class="commit-hash">${hash}</span> ${msg.join(' ')}</div>`;
+                }).join('');
+                
+                return `
+                    <div class="${cls}">
+                        <div class="item-title">${repo.name}</div>
+                        <div class="item-meta">
+                            <span class="tag">${repo.branch || 'unknown'}</span>
+                            ${repo.commit_count} commits
+                            ${repo.is_dirty ? '⚠️ dirty' : ''}
+                            ${repo.ahead ? `↑${repo.ahead}` : ''}
+                            ${repo.behind ? `↓${repo.behind}` : ''}
+                        </div>
+                        ${commits}
                     </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
+        }
+
+        function renderTasksDetails() {
+            const content = document.getElementById('tasks-detail-content');
+            if (!dashboardData?.sources?.todoist?.tasks) {
+                content.innerHTML = '<div class="empty-state">Load dashboard first</div>';
+                return;
+            }
+            
+            content.innerHTML = dashboardData.sources.todoist.tasks.map(task => {
+                const cls = task.is_overdue ? 'item overdue' : task.is_today ? 'item today' : 'item';
+                const icon = task.priority === 4 ? '🔴' : task.priority === 3 ? '🟠' : task.priority === 2 ? '🟡' : '';
+                
+                return `
+                    <div class="${cls}">
+                        <div class="item-title">${icon} ${task.content}</div>
+                        <div class="item-meta">
+                            <span class="tag">${task.project}</span>
+                            ${task.due_date ? `Due: ${task.due_date}` : 'No due date'}
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
 
         // Initial load
-        refreshDashboard();
+        refreshAll();
     </script>
 </body>
 </html>
