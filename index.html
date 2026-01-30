@@ -1118,7 +1118,9 @@
 
         let planSessionId = null;
         let planSocket = null;
-        let gatewayToken = localStorage.getItem('gateway_token') || '';
+        // Pre-configured gateway token (from clawdbot config)
+        const DEFAULT_GATEWAY_TOKEN = 'f2f8d0074aa8f2bf972bfa072ebdb45cb54d00fd8337f3a7';
+        let gatewayToken = localStorage.getItem('gateway_token') || DEFAULT_GATEWAY_TOKEN;
 
         async function loadPlanContext() {
             try {
@@ -1251,34 +1253,35 @@
         }
 
         function connectGateway() {
-            const wsUrl = `ws://localhost:18789`;
+            // Connect with token in URL (Clawdbot Gateway protocol)
+            const wsUrl = `ws://localhost:18789?token=${encodeURIComponent(gatewayToken)}`;
             planSocket = new WebSocket(wsUrl);
             
             planSocket.onopen = () => {
-                console.log('Gateway connected');
-                // Authenticate
-                planSocket.send(JSON.stringify({
-                    type: 'connect',
-                    params: { auth: { token: gatewayToken } }
-                }));
+                console.log('Gateway WebSocket connected');
+                addChatMessage('system', '🔌 Connected to Jeeves');
             };
             
             planSocket.onmessage = (event) => {
                 try {
                     const msg = JSON.parse(event.data);
+                    console.log('Gateway message:', msg);
                     handleGatewayMessage(msg);
                 } catch (e) {
-                    console.error('Gateway message error:', e);
+                    console.error('Gateway message parse error:', e);
                 }
             };
             
             planSocket.onerror = (error) => {
-                console.error('Gateway error:', error);
-                addChatMessage('system', '⚠️ Gateway connection error');
+                console.error('Gateway WebSocket error:', error);
+                addChatMessage('system', '⚠️ Gateway connection error - check if Clawdbot is running');
             };
             
-            planSocket.onclose = () => {
-                console.log('Gateway disconnected');
+            planSocket.onclose = (event) => {
+                console.log('Gateway WebSocket closed:', event.code, event.reason);
+                if (planSessionId) {
+                    addChatMessage('system', '🔌 Disconnected from Jeeves');
+                }
             };
         }
 
@@ -1378,16 +1381,22 @@ Overdue: ${standupData?.tasks?.overdue?.slice(0,5).map(t => t.content).join(', '
 Today: ${standupData?.tasks?.today?.slice(0,5).map(t => t.content).join(', ') || 'None'}
 ` : '';
             
-            // Send to Gateway
+            // Send to Gateway using Clawdbot RPC format
             if (planSocket && planSocket.readyState === WebSocket.OPEN) {
-                planSocket.send(JSON.stringify({
-                    type: 'chat.send',
-                    message: context + '\n\nUser request: ' + message,
-                    sessionKey: 'main'
-                }));
+                const rpcMessage = {
+                    id: Date.now(),
+                    type: 'rpc',
+                    method: 'chat.send',
+                    params: {
+                        message: context + '\n\nUser request: ' + message,
+                        sessionKey: 'main'
+                    }
+                };
+                console.log('Sending to Gateway:', rpcMessage);
+                planSocket.send(JSON.stringify(rpcMessage));
             } else {
                 removeTypingIndicator();
-                addChatMessage('system', '⚠️ Not connected to Gateway');
+                addChatMessage('system', '⚠️ Not connected to Gateway - click Start Session to reconnect');
             }
         }
 
