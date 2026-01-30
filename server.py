@@ -6,7 +6,7 @@ Aggregates data from multiple sources:
 - Git repositories (commits, branch status, dirty state)
 - Todoist (tasks filtered by project)
 - Kanban board (localhost:8888)
-- Linear (future)
+- Linear (GraphQL API)
 """
 
 import json

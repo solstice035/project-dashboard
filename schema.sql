@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS dashboard_kanban_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_kanban_snapshots_time ON dashboard_kanban_snapshots(snapshot_at);
 
--- Linear issue snapshots (for future)
+-- Linear issue snapshots
 CREATE TABLE IF NOT EXISTS dashboard_linear_snapshots (
     id SERIAL PRIMARY KEY,
     total_issues INTEGER DEFAULT 0,
