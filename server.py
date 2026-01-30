@@ -551,6 +551,305 @@ def get_config_status():
 
 
 # =============================================================================
+# Standup & Planning API
+# =============================================================================
+
+def fetch_weather() -> dict:
+    """Fetch current weather."""
+    try:
+        resp = requests.get('https://wttr.in/London?format=j1', timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            current = data.get('current_condition', [{}])[0]
+            return {
+                'status': 'ok',
+                'temp_c': current.get('temp_C'),
+                'condition': current.get('weatherDesc', [{}])[0].get('value'),
+                'humidity': current.get('humidity'),
+                'wind_kph': current.get('windspeedKmph')
+            }
+    except Exception as e:
+        logger.warning(f"Weather fetch failed: {e}")
+    return {'status': 'error', 'error': 'Failed to fetch weather'}
+
+
+@app.route('/api/standup')
+def get_standup():
+    """Get morning standup data - tasks, calendar, weather, projects."""
+    start_time = datetime.now()
+    today = start_time.strftime('%Y-%m-%d')
+    
+    # Fetch all data
+    todoist = fetch_todoist()
+    kanban = fetch_kanban()
+    weather = fetch_weather()
+    
+    # Process tasks
+    tasks = todoist.get('tasks', [])
+    overdue = [t for t in tasks if t.get('is_overdue')]
+    today_tasks = [t for t in tasks if t.get('is_today')]
+    upcoming = [t for t in tasks if not t.get('is_overdue') and not t.get('is_today') and t.get('due_date')]
+    
+    # Kanban summary
+    kanban_cols = kanban.get('by_column', {})
+    in_progress = kanban_cols.get('in-progress', [])
+    ready = kanban_cols.get('ready', [])
+    
+    elapsed = (datetime.now() - start_time).total_seconds()
+    
+    return jsonify({
+        'generated_at': start_time.isoformat(),
+        'date': today,
+        'day_name': start_time.strftime('%A'),
+        'fetch_time_seconds': round(elapsed, 2),
+        'weather': weather,
+        'tasks': {
+            'overdue': overdue,
+            'today': today_tasks,
+            'upcoming': upcoming[:5]  # Next 5 upcoming
+        },
+        'kanban': {
+            'in_progress': in_progress,
+            'ready': ready[:5]  # Top 5 ready
+        },
+        'summary': {
+            'overdue_count': len(overdue),
+            'today_count': len(today_tasks),
+            'in_progress_count': len(in_progress)
+        }
+    })
+
+
+@app.route('/api/planning/session', methods=['POST'])
+def manage_planning_session():
+    """Start or end a planning session."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    data = request.get_json() or {}
+    action = data.get('action')
+    
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        conn = psycopg2.connect(dbname='nick', host='localhost', cursor_factory=RealDictCursor)
+        cur = conn.cursor()
+        
+        if action == 'start':
+            # Get current context
+            context = {
+                'tasks': fetch_todoist().get('tasks', [])[:20],
+                'kanban': fetch_kanban().get('by_column', {})
+            }
+            
+            cur.execute("""
+                INSERT INTO planning_sessions (initial_context)
+                VALUES (%s)
+                RETURNING id, started_at
+            """, (json.dumps(context),))
+            
+            result = cur.fetchone()
+            conn.commit()
+            
+            return jsonify({
+                'status': 'ok',
+                'session_id': result['id'],
+                'started_at': result['started_at'].isoformat(),
+                'context': context
+            })
+            
+        elif action == 'end':
+            session_id = data.get('session_id')
+            if not session_id:
+                return jsonify({'error': 'session_id required'}), 400
+            
+            # Calculate duration and update
+            cur.execute("""
+                UPDATE planning_sessions
+                SET ended_at = NOW(),
+                    duration_seconds = EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER,
+                    final_state = %s,
+                    messages_count = (SELECT COUNT(*) FROM planning_messages WHERE session_id = %s),
+                    actions_count = (SELECT COUNT(*) FROM planning_actions WHERE session_id = %s)
+                WHERE id = %s
+                RETURNING id, duration_seconds, messages_count, actions_count
+            """, (json.dumps(data.get('final_state', {})), session_id, session_id, session_id))
+            
+            result = cur.fetchone()
+            conn.commit()
+            
+            if result:
+                return jsonify({
+                    'status': 'ok',
+                    'session_id': result['id'],
+                    'duration_seconds': result['duration_seconds'],
+                    'messages_count': result['messages_count'],
+                    'actions_count': result['actions_count']
+                })
+            else:
+                return jsonify({'error': 'Session not found'}), 404
+        
+        else:
+            return jsonify({'error': 'Invalid action. Use start or end'}), 400
+            
+    except Exception as e:
+        logger.error(f"Planning session error: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+
+@app.route('/api/planning/action', methods=['POST'])
+def log_planning_action():
+    """Log a planning action (task change)."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    data = request.get_json() or {}
+    required = ['session_id', 'action_type']
+    
+    if not all(k in data for k in required):
+        return jsonify({'error': f'Required fields: {required}'}), 400
+    
+    try:
+        import psycopg2
+        conn = psycopg2.connect(dbname='nick', host='localhost')
+        cur = conn.cursor()
+        
+        cur.execute("""
+            INSERT INTO planning_actions 
+            (session_id, action_type, target_type, target_id, target_title, details)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            data['session_id'],
+            data['action_type'],
+            data.get('target_type'),
+            data.get('target_id'),
+            data.get('target_title'),
+            json.dumps(data.get('details', {}))
+        ))
+        
+        action_id = cur.fetchone()[0]
+        conn.commit()
+        
+        return jsonify({'status': 'ok', 'action_id': action_id})
+        
+    except Exception as e:
+        logger.error(f"Planning action error: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+
+@app.route('/api/planning/message', methods=['POST'])
+def log_planning_message():
+    """Log a chat message in the planning session."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    data = request.get_json() or {}
+    required = ['session_id', 'role', 'content']
+    
+    if not all(k in data for k in required):
+        return jsonify({'error': f'Required fields: {required}'}), 400
+    
+    try:
+        import psycopg2
+        conn = psycopg2.connect(dbname='nick', host='localhost')
+        cur = conn.cursor()
+        
+        cur.execute("""
+            INSERT INTO planning_messages 
+            (session_id, role, content, tokens_used)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+        """, (
+            data['session_id'],
+            data['role'],
+            data['content'],
+            data.get('tokens_used')
+        ))
+        
+        msg_id = cur.fetchone()[0]
+        conn.commit()
+        
+        return jsonify({'status': 'ok', 'message_id': msg_id})
+        
+    except Exception as e:
+        logger.error(f"Planning message error: {e}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+
+@app.route('/api/planning/analytics')
+def get_planning_analytics():
+    """Get planning analytics and trends."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    days = request.args.get('days', 30, type=int)
+    
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        conn = psycopg2.connect(dbname='nick', host='localhost', cursor_factory=RealDictCursor)
+        cur = conn.cursor()
+        
+        # Recent sessions
+        cur.execute("""
+            SELECT id, started_at, ended_at, duration_seconds, 
+                   messages_count, actions_count
+            FROM planning_sessions
+            WHERE started_at > NOW() - INTERVAL '%s days'
+            ORDER BY started_at DESC
+            LIMIT 20
+        """, (days,))
+        sessions = [dict(row) for row in cur.fetchall()]
+        
+        # Action type breakdown
+        cur.execute("""
+            SELECT action_type, COUNT(*) as count
+            FROM planning_actions
+            WHERE action_at > NOW() - INTERVAL '%s days'
+            GROUP BY action_type
+            ORDER BY count DESC
+        """, (days,))
+        action_breakdown = [dict(row) for row in cur.fetchall()]
+        
+        # Totals
+        cur.execute("""
+            SELECT 
+                COUNT(*) as total_sessions,
+                COALESCE(SUM(duration_seconds), 0) as total_duration,
+                COALESCE(SUM(messages_count), 0) as total_messages,
+                COALESCE(SUM(actions_count), 0) as total_actions,
+                COALESCE(AVG(duration_seconds), 0) as avg_duration
+            FROM planning_sessions
+            WHERE started_at > NOW() - INTERVAL '%s days'
+              AND ended_at IS NOT NULL
+        """, (days,))
+        totals = dict(cur.fetchone())
+        
+        conn.close()
+        
+        return jsonify({
+            'days': days,
+            'sessions': sessions,
+            'action_breakdown': action_breakdown,
+            'totals': totals
+        })
+        
+    except Exception as e:
+        logger.error(f"Planning analytics error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
 # Main
 # =============================================================================
 

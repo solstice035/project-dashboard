@@ -212,6 +212,62 @@
             border-radius: 4px; cursor: pointer; font-size: 0.75rem;
         }
         .period-btn.active { background: var(--accent-teal); color: var(--bg-primary); border-color: var(--accent-teal); }
+
+        /* Chat styles */
+        .chat-message {
+            max-width: 85%; padding: 0.75rem 1rem; border-radius: 12px;
+            font-size: 0.9rem; line-height: 1.5;
+        }
+        .chat-message.user {
+            background: var(--accent-teal); color: var(--bg-primary);
+            align-self: flex-end; border-bottom-right-radius: 4px;
+        }
+        .chat-message.assistant {
+            background: var(--bg-secondary); color: var(--text-primary);
+            align-self: flex-start; border-bottom-left-radius: 4px;
+        }
+        .chat-message.system {
+            background: transparent; color: var(--text-muted);
+            align-self: center; font-size: 0.8rem; font-style: italic;
+        }
+        .chat-message .timestamp {
+            font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem;
+        }
+        .chat-message.user .timestamp { color: rgba(0,0,0,0.5); }
+        
+        .chat-typing {
+            display: flex; gap: 4px; padding: 0.5rem;
+        }
+        .chat-typing span {
+            width: 8px; height: 8px; background: var(--text-muted);
+            border-radius: 50%; animation: typing 1.4s infinite;
+        }
+        .chat-typing span:nth-child(2) { animation-delay: 0.2s; }
+        .chat-typing span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typing { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-4px); } }
+
+        .quick-action {
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            color: var(--text-secondary); padding: 0.375rem 0.75rem;
+            border-radius: 16px; cursor: pointer; font-size: 0.75rem;
+            transition: all 0.2s;
+        }
+        .quick-action:hover { border-color: var(--accent-teal); color: var(--text-primary); }
+        .quick-action:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Context panel items */
+        .context-section { margin-bottom: 1rem; }
+        .context-section-title {
+            font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;
+            margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;
+        }
+        .context-item {
+            padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;
+            margin-bottom: 0.375rem; font-size: 0.85rem;
+        }
+        .context-item.overdue { border-left: 3px solid var(--accent-coral); }
+        .context-item.today { border-left: 3px solid var(--accent-teal); }
+        .context-item.in-progress { border-left: 3px solid var(--accent-cyan); }
     </style>
 </head>
 <body>
@@ -233,11 +289,119 @@
         </header>
 
         <div class="tabs">
+            <button class="tab" onclick="switchTab('standup')">☀️ Standup</button>
+            <button class="tab" onclick="switchTab('plan')">💬 Plan</button>
             <button class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
             <button class="tab" onclick="switchTab('analytics')">📈 Analytics</button>
             <button class="tab" onclick="switchTab('git-detail')">🚀 Git Details</button>
             <button class="tab" onclick="switchTab('tasks-detail')">📋 Task Details</button>
             <button class="tab" onclick="switchTab('linear-detail')">📊 Linear Details</button>
+        </div>
+
+        <!-- Standup Tab -->
+        <div id="tab-standup" class="tab-content">
+            <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr;">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">🌤️ Today</span>
+                        <span class="card-badge" id="standup-date">-</span>
+                    </div>
+                    <div class="card-content" id="standup-weather">
+                        <div class="skeleton"></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">📊 Summary</span>
+                    </div>
+                    <div class="card-content" id="standup-summary">
+                        <div class="skeleton"></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">⚠️ Overdue</span>
+                        <span class="card-badge" id="standup-overdue-count">0</span>
+                    </div>
+                    <div class="card-content" id="standup-overdue" style="max-height: 250px;">
+                        <div class="empty-state">No overdue tasks</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">📅 Today's Tasks</span>
+                        <span class="card-badge" id="standup-today-count">0</span>
+                    </div>
+                    <div class="card-content" id="standup-today" style="max-height: 250px;">
+                        <div class="skeleton"></div>
+                    </div>
+                </div>
+                <div class="card full-width">
+                    <div class="card-header">
+                        <span class="card-title">🚀 In Progress (Jeeves)</span>
+                        <span class="card-badge" id="standup-inprogress-count">0</span>
+                    </div>
+                    <div class="card-content" id="standup-inprogress">
+                        <div class="skeleton"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Plan Tab (Chat + Standup Split) -->
+        <div id="tab-plan" class="tab-content">
+            <div class="plan-container" style="display: grid; grid-template-columns: 350px 1fr; gap: 1.5rem; height: calc(100vh - 180px);">
+                <!-- Left: Context Panel -->
+                <div class="card" style="overflow-y: auto;">
+                    <div class="card-header">
+                        <span class="card-title">📋 Context</span>
+                        <button class="refresh-btn" onclick="loadPlanContext()" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">↻</button>
+                    </div>
+                    <div class="card-content" id="plan-context">
+                        <div class="skeleton"></div>
+                    </div>
+                </div>
+                
+                <!-- Right: Chat Panel -->
+                <div class="card" style="display: flex; flex-direction: column;">
+                    <div class="card-header">
+                        <span class="card-title">💬 Planning Chat</span>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <span id="plan-session-status" style="font-size: 0.75rem; color: var(--text-muted);">Not started</span>
+                            <button id="plan-session-btn" class="refresh-btn" onclick="togglePlanSession()" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">Start Session</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Messages -->
+                    <div id="plan-messages" style="flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">💬</div>
+                            <div>Start a session to plan your day</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Input -->
+                    <div style="padding: 1rem; border-top: 1px solid var(--border);">
+                        <div style="display: flex; gap: 0.5rem;">
+                            <input type="text" id="plan-input" placeholder="What should I focus on today?" 
+                                   style="flex: 1; background: var(--bg-secondary); border: 1px solid var(--border); 
+                                          border-radius: 8px; padding: 0.75rem 1rem; color: var(--text-primary);
+                                          font-size: 0.9rem;"
+                                   onkeypress="if(event.key==='Enter')sendPlanMessage()" disabled>
+                            <button onclick="sendPlanMessage()" id="plan-send-btn"
+                                    style="background: var(--accent-teal); border: none; border-radius: 8px;
+                                           padding: 0.75rem 1.5rem; color: var(--bg-primary); cursor: pointer;
+                                           font-weight: 500;" disabled>Send</button>
+                        </div>
+                        <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                            <button class="quick-action" onclick="sendQuickAction('What should I focus on first?')">🎯 Focus</button>
+                            <button class="quick-action" onclick="sendQuickAction('What\'s blocking me?')">🚧 Blockers</button>
+                            <button class="quick-action" onclick="sendQuickAction('Reschedule low priority tasks')">📅 Reschedule</button>
+                            <button class="quick-action" onclick="sendQuickAction('Give me a quick summary')">📊 Summary</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Dashboard Tab -->
@@ -854,6 +1018,417 @@
             // Backlog
             document.getElementById('linear-backlog-content').innerHTML = renderIssueList(byStatus['Backlog']);
         }
+
+        // =============================================================================
+        // Standup Functions
+        // =============================================================================
+
+        let standupData = null;
+
+        async function loadStandup() {
+            try {
+                const resp = await fetch('/api/standup');
+                standupData = await resp.json();
+                renderStandup(standupData);
+            } catch (e) {
+                console.error('Standup error:', e);
+            }
+        }
+
+        function renderStandup(data) {
+            // Date & Weather
+            document.getElementById('standup-date').textContent = data.day_name;
+            
+            if (data.weather?.status === 'ok') {
+                document.getElementById('standup-weather').innerHTML = `
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">${data.weather.condition}</div>
+                    <div style="font-size: 1.5rem; color: var(--accent-teal);">${data.weather.temp_c}°C</div>
+                    <div style="color: var(--text-muted); margin-top: 0.5rem;">
+                        Humidity: ${data.weather.humidity}% · Wind: ${data.weather.wind_kph} km/h
+                    </div>
+                `;
+            } else {
+                document.getElementById('standup-weather').innerHTML = '<div class="empty-state">Weather unavailable</div>';
+            }
+            
+            // Summary
+            document.getElementById('standup-summary').innerHTML = `
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; text-align: center;">
+                    <div>
+                        <div style="font-size: 2rem; color: var(--accent-coral);">${data.summary.overdue_count}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">Overdue</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 2rem; color: var(--accent-teal);">${data.summary.today_count}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">Today</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 2rem; color: var(--accent-cyan);">${data.summary.in_progress_count}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">In Progress</div>
+                    </div>
+                </div>
+            `;
+            
+            // Overdue tasks
+            document.getElementById('standup-overdue-count').textContent = data.tasks.overdue.length;
+            if (data.tasks.overdue.length) {
+                document.getElementById('standup-overdue').innerHTML = data.tasks.overdue.map(t => `
+                    <div class="context-item overdue">
+                        <div>${t.content}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">${t.project} · ${t.due_date}</div>
+                    </div>
+                `).join('');
+            } else {
+                document.getElementById('standup-overdue').innerHTML = '<div class="empty-state">✨ No overdue tasks!</div>';
+            }
+            
+            // Today's tasks
+            document.getElementById('standup-today-count').textContent = data.tasks.today.length;
+            if (data.tasks.today.length) {
+                document.getElementById('standup-today').innerHTML = data.tasks.today.map(t => {
+                    const icon = t.priority === 4 ? '🔴' : t.priority === 3 ? '🟠' : t.priority === 2 ? '🟡' : '⚪';
+                    return `
+                        <div class="context-item today">
+                            <div>${icon} ${t.content}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted);">${t.project}</div>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                document.getElementById('standup-today').innerHTML = '<div class="empty-state">No tasks scheduled for today</div>';
+            }
+            
+            // In Progress (Kanban)
+            document.getElementById('standup-inprogress-count').textContent = data.kanban.in_progress.length;
+            if (data.kanban.in_progress.length) {
+                document.getElementById('standup-inprogress').innerHTML = data.kanban.in_progress.map(t => `
+                    <div class="context-item in-progress">
+                        <div>${t.title}</div>
+                        ${t.tags?.length ? `<div style="font-size: 0.75rem; color: var(--text-muted);">${t.tags.join(', ')}</div>` : ''}
+                    </div>
+                `).join('');
+            } else {
+                document.getElementById('standup-inprogress').innerHTML = '<div class="empty-state">Nothing in progress</div>';
+            }
+        }
+
+        // =============================================================================
+        // Planning Chat Functions
+        // =============================================================================
+
+        let planSessionId = null;
+        let planSocket = null;
+        let gatewayToken = localStorage.getItem('gateway_token') || '';
+
+        async function loadPlanContext() {
+            try {
+                const resp = await fetch('/api/standup');
+                const data = await resp.json();
+                renderPlanContext(data);
+            } catch (e) {
+                console.error('Plan context error:', e);
+            }
+        }
+
+        function renderPlanContext(data) {
+            let html = '';
+            
+            // Overdue
+            if (data.tasks.overdue.length) {
+                html += `<div class="context-section">
+                    <div class="context-section-title">⚠️ Overdue (${data.tasks.overdue.length})</div>
+                    ${data.tasks.overdue.slice(0, 5).map(t => `<div class="context-item overdue">${t.content}</div>`).join('')}
+                </div>`;
+            }
+            
+            // Today
+            if (data.tasks.today.length) {
+                html += `<div class="context-section">
+                    <div class="context-section-title">📅 Today (${data.tasks.today.length})</div>
+                    ${data.tasks.today.slice(0, 8).map(t => {
+                        const icon = t.priority === 4 ? '🔴' : t.priority === 3 ? '🟠' : t.priority === 2 ? '🟡' : '⚪';
+                        return `<div class="context-item today">${icon} ${t.content}</div>`;
+                    }).join('')}
+                </div>`;
+            }
+            
+            // In Progress
+            if (data.kanban.in_progress.length) {
+                html += `<div class="context-section">
+                    <div class="context-section-title">🚀 In Progress (${data.kanban.in_progress.length})</div>
+                    ${data.kanban.in_progress.map(t => `<div class="context-item in-progress">${t.title}</div>`).join('')}
+                </div>`;
+            }
+            
+            // Ready
+            if (data.kanban.ready.length) {
+                html += `<div class="context-section">
+                    <div class="context-section-title">✅ Ready (${data.kanban.ready.length})</div>
+                    ${data.kanban.ready.slice(0, 5).map(t => `<div class="context-item">${t.title}</div>`).join('')}
+                </div>`;
+            }
+            
+            document.getElementById('plan-context').innerHTML = html || '<div class="empty-state">No context available</div>';
+        }
+
+        async function togglePlanSession() {
+            if (planSessionId) {
+                await endPlanSession();
+            } else {
+                await startPlanSession();
+            }
+        }
+
+        async function startPlanSession() {
+            // Check for gateway token
+            if (!gatewayToken) {
+                gatewayToken = prompt('Enter Gateway token (from clawdbot config):');
+                if (!gatewayToken) return;
+                localStorage.setItem('gateway_token', gatewayToken);
+            }
+
+            try {
+                // Start session in our backend
+                const resp = await fetch('/api/planning/session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'start' })
+                });
+                const data = await resp.json();
+                
+                if (data.status === 'ok') {
+                    planSessionId = data.session_id;
+                    document.getElementById('plan-session-status').textContent = `Session #${planSessionId}`;
+                    document.getElementById('plan-session-btn').textContent = 'End Session';
+                    document.getElementById('plan-input').disabled = false;
+                    document.getElementById('plan-send-btn').disabled = false;
+                    document.querySelectorAll('.quick-action').forEach(b => b.disabled = false);
+                    
+                    // Clear messages and add system message
+                    document.getElementById('plan-messages').innerHTML = `
+                        <div class="chat-message system">Planning session started</div>
+                    `;
+                    
+                    // Connect to Gateway WebSocket
+                    connectGateway();
+                    
+                    // Load context
+                    loadPlanContext();
+                }
+            } catch (e) {
+                console.error('Start session error:', e);
+                alert('Failed to start session: ' + e.message);
+            }
+        }
+
+        async function endPlanSession() {
+            if (!planSessionId) return;
+            
+            try {
+                await fetch('/api/planning/session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'end', session_id: planSessionId })
+                });
+                
+                if (planSocket) {
+                    planSocket.close();
+                    planSocket = null;
+                }
+                
+                addChatMessage('system', 'Planning session ended');
+                
+                planSessionId = null;
+                document.getElementById('plan-session-status').textContent = 'Not started';
+                document.getElementById('plan-session-btn').textContent = 'Start Session';
+                document.getElementById('plan-input').disabled = true;
+                document.getElementById('plan-send-btn').disabled = true;
+                document.querySelectorAll('.quick-action').forEach(b => b.disabled = true);
+                
+            } catch (e) {
+                console.error('End session error:', e);
+            }
+        }
+
+        function connectGateway() {
+            const wsUrl = `ws://localhost:18789`;
+            planSocket = new WebSocket(wsUrl);
+            
+            planSocket.onopen = () => {
+                console.log('Gateway connected');
+                // Authenticate
+                planSocket.send(JSON.stringify({
+                    type: 'connect',
+                    params: { auth: { token: gatewayToken } }
+                }));
+            };
+            
+            planSocket.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    handleGatewayMessage(msg);
+                } catch (e) {
+                    console.error('Gateway message error:', e);
+                }
+            };
+            
+            planSocket.onerror = (error) => {
+                console.error('Gateway error:', error);
+                addChatMessage('system', '⚠️ Gateway connection error');
+            };
+            
+            planSocket.onclose = () => {
+                console.log('Gateway disconnected');
+            };
+        }
+
+        let currentAssistantMessage = null;
+
+        function handleGatewayMessage(msg) {
+            // Handle different message types from Gateway
+            if (msg.type === 'chat') {
+                const event = msg.event || msg;
+                
+                if (event.kind === 'text' || event.kind === 'chunk') {
+                    // Streaming text
+                    if (!currentAssistantMessage) {
+                        currentAssistantMessage = addChatMessage('assistant', '');
+                    }
+                    currentAssistantMessage.querySelector('.message-content').textContent += event.text || '';
+                    scrollChat();
+                }
+                
+                if (event.kind === 'done' || event.kind === 'end') {
+                    // Message complete
+                    if (currentAssistantMessage) {
+                        const content = currentAssistantMessage.querySelector('.message-content').textContent;
+                        logPlanMessage('assistant', content);
+                    }
+                    currentAssistantMessage = null;
+                    removeTypingIndicator();
+                }
+                
+                if (event.kind === 'tool_start') {
+                    addChatMessage('system', `🔧 Using: ${event.tool || 'tool'}`);
+                }
+            }
+            
+            if (msg.type === 'error') {
+                addChatMessage('system', `⚠️ Error: ${msg.message || 'Unknown error'}`);
+                removeTypingIndicator();
+            }
+        }
+
+        function addChatMessage(role, content) {
+            const messages = document.getElementById('plan-messages');
+            const div = document.createElement('div');
+            div.className = `chat-message ${role}`;
+            div.innerHTML = `
+                <div class="message-content">${content}</div>
+                <div class="timestamp">${new Date().toLocaleTimeString()}</div>
+            `;
+            messages.appendChild(div);
+            scrollChat();
+            return div;
+        }
+
+        function addTypingIndicator() {
+            removeTypingIndicator();
+            const messages = document.getElementById('plan-messages');
+            const div = document.createElement('div');
+            div.id = 'typing-indicator';
+            div.className = 'chat-message assistant';
+            div.innerHTML = '<div class="chat-typing"><span></span><span></span><span></span></div>';
+            messages.appendChild(div);
+            scrollChat();
+        }
+
+        function removeTypingIndicator() {
+            const indicator = document.getElementById('typing-indicator');
+            if (indicator) indicator.remove();
+        }
+
+        function scrollChat() {
+            const messages = document.getElementById('plan-messages');
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        async function sendPlanMessage() {
+            const input = document.getElementById('plan-input');
+            const message = input.value.trim();
+            if (!message || !planSessionId) return;
+            
+            input.value = '';
+            
+            // Add user message to chat
+            addChatMessage('user', message);
+            logPlanMessage('user', message);
+            
+            // Show typing indicator
+            addTypingIndicator();
+            
+            // Build context for the message
+            const context = standupData ? `
+Current planning context:
+- Overdue tasks: ${standupData?.tasks?.overdue?.length || 0}
+- Today's tasks: ${standupData?.tasks?.today?.length || 0}
+- In progress: ${standupData?.kanban?.in_progress?.length || 0}
+
+Overdue: ${standupData?.tasks?.overdue?.slice(0,5).map(t => t.content).join(', ') || 'None'}
+Today: ${standupData?.tasks?.today?.slice(0,5).map(t => t.content).join(', ') || 'None'}
+` : '';
+            
+            // Send to Gateway
+            if (planSocket && planSocket.readyState === WebSocket.OPEN) {
+                planSocket.send(JSON.stringify({
+                    type: 'chat.send',
+                    message: context + '\n\nUser request: ' + message,
+                    sessionKey: 'main'
+                }));
+            } else {
+                removeTypingIndicator();
+                addChatMessage('system', '⚠️ Not connected to Gateway');
+            }
+        }
+
+        function sendQuickAction(action) {
+            document.getElementById('plan-input').value = action;
+            sendPlanMessage();
+        }
+
+        async function logPlanMessage(role, content) {
+            if (!planSessionId) return;
+            try {
+                await fetch('/api/planning/message', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: planSessionId,
+                        role: role,
+                        content: content
+                    })
+                });
+            } catch (e) {
+                console.error('Log message error:', e);
+            }
+        }
+
+        // Update switchTab to load standup/plan data
+        const originalSwitchTab = switchTab;
+        switchTab = function(tabId) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById('tab-' + tabId).classList.add('active');
+
+            if (tabId === 'analytics') loadAnalytics();
+            if (tabId === 'git-detail') renderGitDetails();
+            if (tabId === 'tasks-detail') renderTasksDetails();
+            if (tabId === 'linear-detail') renderLinearDetails();
+            if (tabId === 'standup') loadStandup();
+            if (tabId === 'plan') { loadPlanContext(); loadStandup(); }
+        };
 
         // Initial load
         refreshAll();

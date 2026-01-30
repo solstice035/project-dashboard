@@ -74,3 +74,61 @@ CREATE TABLE IF NOT EXISTS dashboard_daily_stats (
 );
 
 CREATE INDEX IF NOT EXISTS idx_daily_stats_date ON dashboard_daily_stats(stat_date);
+
+-- Planning sessions (chat-based planning with Jeeves)
+CREATE TABLE IF NOT EXISTS planning_sessions (
+    id SERIAL PRIMARY KEY,
+    started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    ended_at TIMESTAMP,
+    duration_seconds INTEGER,
+    initial_context JSONB,  -- tasks, calendar at session start
+    final_state JSONB,      -- what was decided/changed
+    messages_count INTEGER DEFAULT 0,
+    actions_count INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_planning_sessions_started ON planning_sessions(started_at);
+
+-- Planning actions (individual task changes during planning)
+CREATE TABLE IF NOT EXISTS planning_actions (
+    id SERIAL PRIMARY KEY,
+    session_id INTEGER REFERENCES planning_sessions(id) ON DELETE CASCADE,
+    action_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    action_type VARCHAR(50) NOT NULL,  -- 'defer', 'complete', 'prioritize', 'add', 'drop', 'reschedule'
+    target_type VARCHAR(50),           -- 'todoist', 'kanban', 'calendar'
+    target_id VARCHAR(255),
+    target_title TEXT,
+    details JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_planning_actions_session ON planning_actions(session_id);
+CREATE INDEX IF NOT EXISTS idx_planning_actions_type ON planning_actions(action_type);
+CREATE INDEX IF NOT EXISTS idx_planning_actions_time ON planning_actions(action_at);
+
+-- Chat messages in planning sessions
+CREATE TABLE IF NOT EXISTS planning_messages (
+    id SERIAL PRIMARY KEY,
+    session_id INTEGER REFERENCES planning_sessions(id) ON DELETE CASCADE,
+    sent_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    role VARCHAR(20) NOT NULL,  -- 'user', 'assistant'
+    content TEXT NOT NULL,
+    tokens_used INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_planning_messages_session ON planning_messages(session_id);
+
+-- Planning daily summaries (for trends)
+CREATE TABLE IF NOT EXISTS planning_daily_stats (
+    stat_date DATE PRIMARY KEY,
+    sessions_count INTEGER DEFAULT 0,
+    total_duration_seconds INTEGER DEFAULT 0,
+    total_messages INTEGER DEFAULT 0,
+    tasks_planned INTEGER DEFAULT 0,
+    tasks_completed INTEGER DEFAULT 0,
+    tasks_deferred INTEGER DEFAULT 0,
+    tasks_added INTEGER DEFAULT 0,
+    planning_accuracy FLOAT,  -- completed / planned
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_planning_daily_date ON planning_daily_stats(stat_date);
