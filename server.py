@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__, static_folder='.')
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 
 # Load configuration
 CONFIG_PATH = Path(__file__).parent / 'config.yaml'

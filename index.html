@@ -4,277 +4,41 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Project Dashboard</title>
+    <!-- Design System Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Playfair+Display:wght@700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        :root {
-            --bg-primary: #0f0f1a;
-            --bg-secondary: #1a1a2e;
-            --bg-card: #16213e;
-            --border: #2d3748;
-            --text-primary: #e2e8f0;
-            --text-secondary: #a0aec0;
-            --text-muted: #718096;
-            --accent-teal: #38b2ac;
-            --accent-cyan: #0bc5ea;
-            --accent-coral: #fc8181;
-            --accent-orange: #f6ad55;
-            --accent-green: #68d391;
-            --accent-purple: #b794f4;
-        }
-
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            min-height: 100vh;
-            line-height: 1.5;
-        }
-
-        .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
-
-        /* Header */
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1.5rem;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .header h1 { font-size: 1.75rem; font-weight: 600; }
-
-        .header-right { display: flex; align-items: center; gap: 1rem; }
-
-        .status-indicators { display: flex; gap: 0.5rem; }
-
-        .status-dot {
-            width: 10px; height: 10px; border-radius: 50%;
-            background: var(--text-muted);
-        }
-        .status-dot.ok { background: var(--accent-green); }
-        .status-dot.error { background: var(--accent-coral); }
-        .status-dot.warning { background: var(--accent-orange); }
-        .status-dot.loading { animation: pulse 1s infinite; }
-
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-
-        .refresh-btn {
-            background: var(--bg-card); border: 1px solid var(--border);
-            color: var(--text-primary); padding: 0.5rem 1rem;
-            border-radius: 6px; cursor: pointer; font-size: 0.875rem;
-            display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;
-        }
-        .refresh-btn:hover { background: var(--bg-secondary); border-color: var(--accent-teal); }
-        .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .refresh-btn .spinner { animation: spin 1s linear infinite; }
-
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-        .last-updated { font-size: 0.75rem; color: var(--text-muted); }
-
-        /* Tabs */
-        .tabs {
-            display: flex; gap: 0.5rem; margin-bottom: 1.5rem;
-            border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;
-        }
-
-        .tab {
-            background: transparent; border: none; color: var(--text-secondary);
-            padding: 0.75rem 1.5rem; cursor: pointer; font-size: 0.9rem;
-            border-radius: 6px 6px 0 0; transition: all 0.2s;
-        }
-        .tab:hover { color: var(--text-primary); background: var(--bg-secondary); }
-        .tab.active {
-            color: var(--accent-teal); background: var(--bg-card);
-            border-bottom: 2px solid var(--accent-teal);
-        }
-
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-
-        /* Grid */
-        .dashboard-grid {
-            display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem;
-        }
-        @media (max-width: 900px) { .dashboard-grid { grid-template-columns: 1fr; } }
-
-        /* Cards */
-        .card {
-            background: var(--bg-card); border: 1px solid var(--border);
-            border-radius: 12px; padding: 1.25rem; min-height: 300px;
-        }
-        .card.error { border-color: var(--accent-coral); }
-        .card.full-width { grid-column: 1 / -1; }
-
-        .card-header {
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);
-        }
-
-        .card-title {
-            font-size: 1rem; font-weight: 600;
-            display: flex; align-items: center; gap: 0.5rem;
-        }
-
-        .card-badge {
-            font-size: 0.75rem; padding: 0.125rem 0.5rem;
-            border-radius: 9999px; background: var(--bg-secondary); color: var(--text-secondary);
-        }
-
-        .card-content { max-height: 350px; overflow-y: auto; }
-
-        /* Items */
-        .item {
-            padding: 0.75rem; margin-bottom: 0.5rem;
-            background: var(--bg-secondary); border-radius: 8px;
-            border-left: 3px solid transparent;
-        }
-        .item:last-child { margin-bottom: 0; }
-        .item.dirty { border-left-color: var(--accent-orange); }
-        .item.overdue { border-left-color: var(--accent-coral); }
-        .item.today { border-left-color: var(--accent-teal); }
-        .item.in-progress { border-left-color: var(--accent-cyan); }
-
-        .item-title { font-weight: 500; font-size: 0.9rem; margin-bottom: 0.25rem; }
-
-        .item-meta {
-            font-size: 0.75rem; color: var(--text-muted);
-            display: flex; flex-wrap: wrap; gap: 0.5rem;
-        }
-
-        .tag {
-            display: inline-block; padding: 0.125rem 0.375rem;
-            background: var(--bg-primary); border-radius: 4px; font-size: 0.7rem;
-        }
-        .tag.priority-4 { color: var(--accent-coral); }
-        .tag.priority-3 { color: var(--accent-orange); }
-        .tag.priority-2 { color: #ecc94b; }
-
-        .commit {
-            font-family: 'SF Mono', Monaco, monospace;
-            font-size: 0.8rem; color: var(--text-secondary); padding: 0.25rem 0;
-        }
-        .commit-hash { color: var(--accent-purple); }
-
-        /* Empty/Error States */
-        .empty-state { text-align: center; padding: 2rem; color: var(--text-muted); }
-        .empty-state-icon { font-size: 2rem; margin-bottom: 0.5rem; }
-
-        .skeleton {
-            background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-card) 50%, var(--bg-secondary) 75%);
-            background-size: 200% 100%; animation: shimmer 1.5s infinite;
-            border-radius: 6px; height: 60px; margin-bottom: 0.5rem;
-        }
-        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-
-        .error-message {
-            background: rgba(252, 129, 129, 0.1); border: 1px solid var(--accent-coral);
-            border-radius: 8px; padding: 1rem; color: var(--accent-coral); font-size: 0.875rem;
-        }
-
-        .setup-prompt {
-            background: rgba(56, 178, 172, 0.1); border: 1px solid var(--accent-teal);
-            border-radius: 8px; padding: 1rem; font-size: 0.875rem;
-        }
-        .setup-prompt code {
-            background: var(--bg-primary); padding: 0.125rem 0.375rem;
-            border-radius: 4px; font-family: monospace;
-        }
-
-        /* Analytics */
-        .chart-container { position: relative; height: 250px; }
-
-        .stat-grid {
-            display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;
-            margin-bottom: 1.5rem;
-        }
-        @media (max-width: 700px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
-
-        .stat-card {
-            background: var(--bg-secondary); border-radius: 8px; padding: 1rem; text-align: center;
-        }
-        .stat-value { font-size: 2rem; font-weight: 700; color: var(--accent-teal); }
-        .stat-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; }
-
-        .trend-up { color: var(--accent-green); }
-        .trend-down { color: var(--accent-coral); }
-
-        /* Period selector */
-        .period-selector {
-            display: flex; gap: 0.5rem; margin-bottom: 1rem;
-        }
-        .period-btn {
-            background: var(--bg-secondary); border: 1px solid var(--border);
-            color: var(--text-secondary); padding: 0.375rem 0.75rem;
-            border-radius: 4px; cursor: pointer; font-size: 0.75rem;
-        }
-        .period-btn.active { background: var(--accent-teal); color: var(--bg-primary); border-color: var(--accent-teal); }
-
-        /* Chat styles */
-        .chat-message {
-            max-width: 85%; padding: 0.75rem 1rem; border-radius: 12px;
-            font-size: 0.9rem; line-height: 1.5;
-        }
-        .chat-message.user {
-            background: var(--accent-teal); color: var(--bg-primary);
-            align-self: flex-end; border-bottom-right-radius: 4px;
-        }
-        .chat-message.assistant {
-            background: var(--bg-secondary); color: var(--text-primary);
-            align-self: flex-start; border-bottom-left-radius: 4px;
-        }
-        .chat-message.system {
-            background: transparent; color: var(--text-muted);
-            align-self: center; font-size: 0.8rem; font-style: italic;
-        }
-        .chat-message .timestamp {
-            font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem;
-        }
-        .chat-message.user .timestamp { color: rgba(0,0,0,0.5); }
-        
-        .chat-typing {
-            display: flex; gap: 4px; padding: 0.5rem;
-        }
-        .chat-typing span {
-            width: 8px; height: 8px; background: var(--text-muted);
-            border-radius: 50%; animation: typing 1.4s infinite;
-        }
-        .chat-typing span:nth-child(2) { animation-delay: 0.2s; }
-        .chat-typing span:nth-child(3) { animation-delay: 0.4s; }
-        @keyframes typing { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-4px); } }
-
-        .quick-action {
-            background: var(--bg-secondary); border: 1px solid var(--border);
-            color: var(--text-secondary); padding: 0.375rem 0.75rem;
-            border-radius: 16px; cursor: pointer; font-size: 0.75rem;
-            transition: all 0.2s;
-        }
-        .quick-action:hover { border-color: var(--accent-teal); color: var(--text-primary); }
-        .quick-action:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        /* Context panel items */
-        .context-section { margin-bottom: 1rem; }
-        .context-section-title {
-            font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;
-            margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;
-        }
-        .context-item {
-            padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;
-            margin-bottom: 0.375rem; font-size: 0.85rem;
-        }
-        .context-item.overdue { border-left: 3px solid var(--accent-coral); }
-        .context-item.today { border-left: 3px solid var(--accent-teal); }
-        .context-item.in-progress { border-left: 3px solid var(--accent-cyan); }
-    </style>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="/static/css/main.css">
 </head>
-<body>
-    <div class="container">
-        <header class="header">
-            <h1>🎯 Project Dashboard</h1>
+<body data-theme="dark">
+    <!-- Sticky Top Bar -->
+    <header class="top-bar">
+        <div class="top-bar-inner">
+            <h1 class="logo"><i data-lucide="target" class="icon"></i> Dashboard</h1>
+
+            <!-- Navigation Tabs -->
+            <nav class="tabs">
+                <button class="tab active" data-tab="command-center">
+                    <i data-lucide="layout-dashboard" class="icon"></i> Command
+                </button>
+                <button class="tab" data-tab="plan">
+                    <i data-lucide="message-square" class="icon"></i> Plan
+                </button>
+                <button class="tab" data-tab="analytics">
+                    <i data-lucide="trending-up" class="icon"></i> Analytics
+                </button>
+            </nav>
+
             <div class="header-right">
+                <!-- Needs Attention Badge -->
+                <div id="attention-badge" class="attention-badge hidden">
+                    <i data-lucide="alert-triangle" class="icon"></i>
+                    <span class="count">0</span>
+                    <div id="attention-dropdown" class="attention-dropdown"></div>
+                </div>
+
                 <div class="status-indicators">
                     <div class="status-dot loading" id="status-git" title="Git"></div>
                     <div class="status-dot loading" id="status-todoist" title="Todoist"></div>
@@ -282,185 +46,228 @@
                     <div class="status-dot loading" id="status-linear" title="Linear"></div>
                 </div>
                 <button class="refresh-btn" id="refresh-btn" onclick="refreshAll()">
-                    <span id="refresh-icon">↻</span> Refresh
+                    <i data-lucide="refresh-cw" class="icon"></i>
                 </button>
-                <span class="last-updated" id="last-updated">Loading...</span>
-            </div>
-        </header>
-
-        <div class="tabs">
-            <button class="tab" onclick="switchTab('standup')">☀️ Standup</button>
-            <button class="tab" onclick="switchTab('plan')">💬 Plan</button>
-            <button class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
-            <button class="tab" onclick="switchTab('overnight')">🌙 Overnight</button>
-            <button class="tab" onclick="switchTab('analytics')">📈 Analytics</button>
-            <button class="tab" onclick="switchTab('git-detail')">🚀 Git Details</button>
-            <button class="tab" onclick="switchTab('tasks-detail')">📋 Task Details</button>
-            <button class="tab" onclick="switchTab('linear-detail')">📊 Linear Details</button>
-        </div>
-
-        <!-- Standup Tab -->
-        <div id="tab-standup" class="tab-content">
-            <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr;">
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-title">🌤️ Today</span>
-                        <span class="card-badge" id="standup-date">-</span>
-                    </div>
-                    <div class="card-content" id="standup-weather">
-                        <div class="skeleton"></div>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-title">📊 Summary</span>
-                    </div>
-                    <div class="card-content" id="standup-summary">
-                        <div class="skeleton"></div>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-title">⚠️ Overdue</span>
-                        <span class="card-badge" id="standup-overdue-count">0</span>
-                    </div>
-                    <div class="card-content" id="standup-overdue" style="max-height: 250px;">
-                        <div class="empty-state">No overdue tasks</div>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-title">📅 Today's Tasks</span>
-                        <span class="card-badge" id="standup-today-count">0</span>
-                    </div>
-                    <div class="card-content" id="standup-today" style="max-height: 250px;">
-                        <div class="skeleton"></div>
-                    </div>
-                </div>
-                <div class="card full-width">
-                    <div class="card-header">
-                        <span class="card-title">🚀 In Progress (Jeeves)</span>
-                        <span class="card-badge" id="standup-inprogress-count">0</span>
-                    </div>
-                    <div class="card-content" id="standup-inprogress">
-                        <div class="skeleton"></div>
-                    </div>
-                </div>
+                <span class="last-updated" id="last-updated">--:--</span>
             </div>
         </div>
+    </header>
 
-        <!-- Plan Tab (Chat + Standup Split) -->
+    <div class="container">
+
+        <!-- Command Center Tab (Dashboard + Standup + Overnight combined) -->
+        <div id="tab-command-center" class="tab-content active">
+            <!-- NEEDS ATTENTION - Alert Section (Aggregated) -->
+            <div class="card card-alert full-width" id="needs-attention-card">
+                <div class="card-header" onclick="toggleNeedsAttention()">
+                    <span class="card-title"><i data-lucide="alert-triangle" class="icon"></i> Needs Attention</span>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span class="card-badge urgent" id="needs-attention-count">0</span>
+                        <i data-lucide="chevron-down" class="icon collapse-icon" id="needs-attention-chevron"></i>
+                    </div>
+                </div>
+                <div class="card-content" id="needs-attention-content">
+                    <div class="empty-state" id="needs-attention-empty">
+                        <div class="empty-state-icon"><i data-lucide="check-circle" class="icon"></i></div>
+                        <div class="empty-state-text">All clear — nothing needs immediate attention</div>
+                    </div>
+                    <div id="needs-attention-items" style="display: none;"></div>
+                </div>
+            </div>
+
+            <!-- Hero Row: Today's Focus + In Progress -->
+            <div class="dashboard-grid hero-row">
+                <!-- Today's Focus (Featured Card) -->
+                <div class="card card-featured" id="today-card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="target" class="icon"></i> Today's Focus</span>
+                        <button class="btn-ghost" onclick="askJeevesForFocus()" title="Get AI suggestions">
+                            <i data-lucide="sparkles" class="icon"></i>
+                        </button>
+                    </div>
+                    <div class="card-content" id="todays-focus-content">
+                        <div class="empty-state">
+                            <div class="empty-state-icon"><i data-lucide="compass" class="icon"></i></div>
+                            <div class="empty-state-text">No focus set for today</div>
+                            <div class="empty-state-hint">You have <span id="ready-count">0</span> items ready to start</div>
+                            <button class="btn-primary" onclick="switchTab('plan')">
+                                <i data-lucide="sparkles" class="icon"></i> Plan with Jeeves
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- In Progress -->
+                <div class="card" id="inprogress-card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="play-circle" class="icon"></i> In Progress</span>
+                        <span class="card-badge" id="inprogress-count">0</span>
+                    </div>
+                    <div class="card-content" id="inprogress-content">
+                        <div class="empty-state">
+                            <div class="empty-state-icon"><i data-lucide="rocket" class="icon"></i></div>
+                            <div class="empty-state-text">Nothing actively in progress</div>
+                            <div class="empty-state-hint">Ready to start something?</div>
+                            <button class="btn-secondary" onclick="showReadyItems()">
+                                <i data-lucide="list" class="icon"></i> View Ready Items
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summary Stats Row - Compact -->
+            <div class="stat-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="standup-overdue-count">-</div>
+                    <div class="stat-label">Overdue</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="standup-today-count">-</div>
+                    <div class="stat-label">Today</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="standup-inprogress-count">-</div>
+                    <div class="stat-label">Active</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="standup-date">-</div>
+                    <div class="stat-label" id="standup-weather">Weather</div>
+                </div>
+            </div>
+
+            <!-- Secondary Row: Ready Items + Activity -->
+            <div class="dashboard-grid">
+                <!-- Ready / Next Up -->
+                <div class="card" id="ready-card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="list-checks" class="icon"></i> Ready / Next Up</span>
+                        <span class="card-badge" id="ready-badge">0</span>
+                    </div>
+                    <div class="card-content" id="ready-content"><div class="skeleton"></div></div>
+                </div>
+
+                <!-- Activity Summary -->
+                <div class="card" id="activity-card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="activity" class="icon"></i> Activity Summary</span>
+                    </div>
+                    <div class="card-content" id="activity-content"><div class="skeleton"></div></div>
+                </div>
+            </div>
+
+            <!-- Collapsed Repository Health -->
+            <div class="card collapsible" id="git-card">
+                <div class="card-header" onclick="toggleGitRepos()">
+                    <span class="card-title"><i data-lucide="folder-git-2" class="icon"></i> Repository Health</span>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <span class="card-summary" id="git-summary">- repos • - dirty • - commits</span>
+                        <i data-lucide="chevron-down" class="icon collapse-icon" id="git-chevron"></i>
+                    </div>
+                </div>
+                <div class="card-content collapsed" id="git-content"><div class="skeleton"></div></div>
+            </div>
+
+            <!-- Data Sources Row (Collapsed by default) -->
+            <div class="dashboard-grid sources-row">
+                <!-- Todoist Tasks -->
+                <div class="card" id="todoist-card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="clipboard-list" class="icon"></i> Tasks</span>
+                        <span class="card-badge" id="todoist-count">-</span>
+                    </div>
+                    <div class="card-content" id="todoist-content"><div class="skeleton"></div></div>
+                </div>
+
+                <!-- Kanban Board -->
+                <div class="card" id="kanban-card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="trello" class="icon"></i> Kanban</span>
+                        <span class="card-badge" id="kanban-count">-</span>
+                    </div>
+                    <div class="card-content" id="kanban-content"><div class="skeleton"></div></div>
+                </div>
+
+                <!-- Linear Issues -->
+                <div class="card" id="linear-card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="bar-chart-3" class="icon"></i> Linear</span>
+                        <span class="card-badge" id="linear-count">-</span>
+                    </div>
+                    <div class="card-content" id="linear-content"><div class="skeleton"></div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Plan Tab -->
         <div id="tab-plan" class="tab-content">
-            <div class="plan-container" style="display: grid; grid-template-columns: 350px 1fr; gap: 1.5rem; height: calc(100vh - 180px);">
+            <div class="plan-container">
                 <!-- Left: Context Panel -->
                 <div class="card" style="overflow-y: auto;">
                     <div class="card-header">
-                        <span class="card-title">📋 Context</span>
-                        <button class="refresh-btn" onclick="loadPlanContext()" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">↻</button>
+                        <span class="card-title"><i data-lucide="clipboard-list" class="icon"></i> Context</span>
+                        <button class="refresh-btn" onclick="loadPlanContext()" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">
+                            <i data-lucide="refresh-cw" class="icon"></i>
+                        </button>
                     </div>
                     <div class="card-content" id="plan-context">
                         <div class="skeleton"></div>
                     </div>
                 </div>
-                
+
                 <!-- Right: Chat Panel -->
                 <div class="card" style="display: flex; flex-direction: column;">
                     <div class="card-header">
-                        <span class="card-title">💬 Planning Chat</span>
+                        <span class="card-title"><i data-lucide="message-square" class="icon"></i> Planning Chat</span>
                         <div style="display: flex; gap: 0.5rem; align-items: center;">
-                            <span id="plan-session-status" style="font-size: 0.75rem; color: var(--text-muted);">Not started</span>
+                            <span id="plan-session-status" class="connection-status disconnected">
+                                <span class="dot"></span> Not connected
+                            </span>
                             <button id="plan-session-btn" class="refresh-btn" onclick="togglePlanSession()" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">Start Session</button>
                         </div>
                     </div>
-                    
+
                     <!-- Messages -->
                     <div id="plan-messages" style="flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
-                        <div class="empty-state">
-                            <div class="empty-state-icon">💬</div>
-                            <div>Start a session to plan your day</div>
+                        <div class="plan-empty-state">
+                            <i data-lucide="sparkles" class="icon"></i>
+                            <h3>Plan Your Day</h3>
+                            <p>Start a session to get personalized recommendations based on your tasks and context.</p>
+                            <div class="plan-tips">
+                                <div class="plan-tips-title">Try asking:</div>
+                                <ul>
+                                    <li><i data-lucide="target" class="icon"></i> What should I focus on first?</li>
+                                    <li><i data-lucide="alert-circle" class="icon"></i> What's blocking me?</li>
+                                    <li><i data-lucide="calendar" class="icon"></i> Reschedule low priority tasks</li>
+                                    <li><i data-lucide="bar-chart" class="icon"></i> Give me a quick summary</li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
-                    
+
                     <!-- Input -->
-                    <div style="padding: 1rem; border-top: 1px solid var(--border);">
-                        <div style="display: flex; gap: 0.5rem;">
-                            <input type="text" id="plan-input" placeholder="What should I focus on today?" 
-                                   style="flex: 1; background: var(--bg-secondary); border: 1px solid var(--border); 
-                                          border-radius: 8px; padding: 0.75rem 1rem; color: var(--text-primary);
-                                          font-size: 0.9rem;"
+                    <div class="chat-input-container">
+                        <div class="chat-input-row">
+                            <input type="text" id="plan-input" class="chat-input" placeholder="What should I focus on today?"
                                    onkeypress="if(event.key==='Enter')sendPlanMessage()" disabled>
-                            <button onclick="sendPlanMessage()" id="plan-send-btn"
-                                    style="background: var(--accent-teal); border: none; border-radius: 8px;
-                                           padding: 0.75rem 1.5rem; color: var(--bg-primary); cursor: pointer;
-                                           font-weight: 500;" disabled>Send</button>
+                            <button onclick="sendPlanMessage()" id="plan-send-btn" class="chat-send-btn" disabled>
+                                <i data-lucide="send" class="icon"></i> Send
+                            </button>
                         </div>
-                        <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                            <button class="quick-action" onclick="sendQuickAction('What should I focus on first?')">🎯 Focus</button>
-                            <button class="quick-action" onclick="sendQuickAction('What\'s blocking me?')">🚧 Blockers</button>
-                            <button class="quick-action" onclick="sendQuickAction('Reschedule low priority tasks')">📅 Reschedule</button>
-                            <button class="quick-action" onclick="sendQuickAction('Give me a quick summary')">📊 Summary</button>
+                        <div class="quick-actions">
+                            <button class="quick-action" onclick="sendQuickAction('What should I focus on first?')" disabled>
+                                <i data-lucide="target" class="icon"></i> Focus
+                            </button>
+                            <button class="quick-action" onclick="sendQuickAction('What\'s blocking me?')" disabled>
+                                <i data-lucide="alert-circle" class="icon"></i> Blockers
+                            </button>
+                            <button class="quick-action" onclick="sendQuickAction('Reschedule low priority tasks')" disabled>
+                                <i data-lucide="calendar" class="icon"></i> Reschedule
+                            </button>
+                            <button class="quick-action" onclick="sendQuickAction('Give me a quick summary')" disabled>
+                                <i data-lucide="bar-chart" class="icon"></i> Summary
+                            </button>
                         </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Dashboard Tab -->
-        <div id="tab-dashboard" class="tab-content active">
-            <main class="dashboard-grid">
-                <div class="card" id="git-card">
-                    <div class="card-header">
-                        <span class="card-title">🚀 Git Repos</span>
-                        <span class="card-badge" id="git-count">-</span>
-                    </div>
-                    <div class="card-content" id="git-content"><div class="skeleton"></div></div>
-                </div>
-                <div class="card" id="todoist-card">
-                    <div class="card-header">
-                        <span class="card-title">📋 Todoist</span>
-                        <span class="card-badge" id="todoist-count">-</span>
-                    </div>
-                    <div class="card-content" id="todoist-content"><div class="skeleton"></div></div>
-                </div>
-                <div class="card" id="linear-card">
-                    <div class="card-header">
-                        <span class="card-title">📊 Linear</span>
-                        <span class="card-badge" id="linear-count">-</span>
-                    </div>
-                    <div class="card-content" id="linear-content"><div class="skeleton"></div></div>
-                </div>
-                <div class="card" id="kanban-card">
-                    <div class="card-header">
-                        <span class="card-title">🎯 Kanban</span>
-                        <span class="card-badge" id="kanban-count">-</span>
-                    </div>
-                    <div class="card-content" id="kanban-content"><div class="skeleton"></div></div>
-                </div>
-            </main>
-        </div>
-
-        <!-- Overnight Tab -->
-        <div id="tab-overnight" class="tab-content">
-            <div style="display: grid; grid-template-columns: 280px 1fr; gap: 1.5rem; height: calc(100vh - 180px);">
-                <!-- Left: Sprint History Sidebar -->
-                <div class="card" style="overflow-y: auto;">
-                    <div class="card-header">
-                        <span class="card-title">📜 Sprint History</span>
-                        <span class="card-badge" id="overnight-history-count">-</span>
-                    </div>
-                    <div class="card-content" id="overnight-history" style="max-height: none;">
-                        <div class="skeleton"></div>
-                    </div>
-                </div>
-                
-                <!-- Right: Current Sprint Details -->
-                <div class="card" style="overflow-y: auto;">
-                    <div class="card-header">
-                        <span class="card-title">🌙 Sprint Details</span>
-                        <span class="card-badge" id="overnight-date">-</span>
-                    </div>
-                    <div class="card-content" id="overnight-content" style="max-height: none;">
-                        <div class="skeleton"></div>
                     </div>
                 </div>
             </div>
@@ -468,1225 +275,184 @@
 
         <!-- Analytics Tab -->
         <div id="tab-analytics" class="tab-content">
-            <div class="period-selector">
-                <button class="period-btn active" onclick="setPeriod(7)">7 Days</button>
-                <button class="period-btn" onclick="setPeriod(14)">14 Days</button>
-                <button class="period-btn" onclick="setPeriod(30)">30 Days</button>
+            <!-- Sub-tabs for detail views -->
+            <div class="sub-tabs">
+                <button class="sub-tab active" onclick="switchAnalyticsSubTab('overview')">Overview</button>
+                <button class="sub-tab" onclick="switchAnalyticsSubTab('git')">Git Details</button>
+                <button class="sub-tab" onclick="switchAnalyticsSubTab('tasks')">Task Details</button>
+                <button class="sub-tab" onclick="switchAnalyticsSubTab('linear')">Linear Details</button>
+                <button class="sub-tab" onclick="switchAnalyticsSubTab('overnight')">Overnight Sprints</button>
             </div>
 
-            <div class="stat-grid" id="stat-grid">
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-commits">-</div>
-                    <div class="stat-label">Total Commits</div>
+            <!-- Overview Sub-content -->
+            <div id="analytics-overview" class="analytics-sub-content active">
+                <div class="period-selector">
+                    <button class="period-btn active" onclick="setPeriod(7)">7 Days</button>
+                    <button class="period-btn" onclick="setPeriod(14)">14 Days</button>
+                    <button class="period-btn" onclick="setPeriod(30)">30 Days</button>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-active-repos">-</div>
-                    <div class="stat-label">Active Repos</div>
+
+                <div class="stat-grid" id="stat-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-commits">-</div>
+                        <div class="stat-label">Total Commits</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-active-repos">-</div>
+                        <div class="stat-label">Active Repos</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-tasks">-</div>
+                        <div class="stat-label">Tasks Today</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-kanban">-</div>
+                        <div class="stat-label">In Progress</div>
+                    </div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-tasks">-</div>
-                    <div class="stat-label">Tasks Today</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-kanban">-</div>
-                    <div class="stat-label">In Progress</div>
+
+                <div class="dashboard-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title"><i data-lucide="git-commit" class="icon"></i> Git Activity</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="chart-git"></canvas>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title"><i data-lucide="kanban" class="icon"></i> Kanban Flow</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="chart-kanban"></canvas>
+                        </div>
+                    </div>
+                    <div class="card full-width">
+                        <div class="card-header">
+                            <span class="card-title"><i data-lucide="bar-chart-3" class="icon"></i> Linear Issues</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="chart-linear"></canvas>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div class="dashboard-grid">
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-title">📈 Git Activity</span>
-                    </div>
-                    <div class="chart-container">
-                        <canvas id="chart-git"></canvas>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-title">📊 Kanban Flow</span>
-                    </div>
-                    <div class="chart-container">
-                        <canvas id="chart-kanban"></canvas>
-                    </div>
-                </div>
+            <!-- Git Details Sub-content -->
+            <div id="analytics-git" class="analytics-sub-content">
                 <div class="card full-width">
                     <div class="card-header">
-                        <span class="card-title">📊 Linear Issues</span>
+                        <span class="card-title"><i data-lucide="folder-git-2" class="icon"></i> All Repositories</span>
                     </div>
-                    <div class="chart-container">
-                        <canvas id="chart-linear"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Git Details Tab -->
-        <div id="tab-git-detail" class="tab-content">
-            <div class="card full-width">
-                <div class="card-header">
-                    <span class="card-title">🚀 All Repositories</span>
-                </div>
-                <div class="card-content" id="git-detail-content" style="max-height: 600px;">
-                    <div class="skeleton"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Tasks Details Tab -->
-        <div id="tab-tasks-detail" class="tab-content">
-            <div class="card full-width">
-                <div class="card-header">
-                    <span class="card-title">📋 All Tasks</span>
-                </div>
-                <div class="card-content" id="tasks-detail-content" style="max-height: 600px;">
-                    <div class="skeleton"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Linear Details Tab -->
-        <div id="tab-linear-detail" class="tab-content">
-            <div class="stat-grid" id="linear-stats">
-                <div class="stat-card">
-                    <div class="stat-value" id="linear-stat-total">-</div>
-                    <div class="stat-label">Total Issues</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="linear-stat-inprogress">-</div>
-                    <div class="stat-label">In Progress</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="linear-stat-todo">-</div>
-                    <div class="stat-label">Todo</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="linear-stat-backlog">-</div>
-                    <div class="stat-label">Backlog</div>
-                </div>
-            </div>
-            <div class="dashboard-grid">
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-title">🚀 In Progress</span>
-                    </div>
-                    <div class="card-content" id="linear-inprogress-content" style="max-height: 400px;">
+                    <div class="card-content" id="git-detail-content" style="max-height: 600px; overflow-y: auto;">
                         <div class="skeleton"></div>
                     </div>
                 </div>
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-title">📋 Todo</span>
-                    </div>
-                    <div class="card-content" id="linear-todo-content" style="max-height: 400px;">
-                        <div class="skeleton"></div>
-                    </div>
-                </div>
+            </div>
+
+            <!-- Tasks Details Sub-content -->
+            <div id="analytics-tasks" class="analytics-sub-content">
                 <div class="card full-width">
                     <div class="card-header">
-                        <span class="card-title">📥 Backlog</span>
+                        <span class="card-title"><i data-lucide="clipboard-list" class="icon"></i> All Tasks</span>
                     </div>
-                    <div class="card-content" id="linear-backlog-content" style="max-height: 400px;">
+                    <div class="card-content" id="tasks-detail-content" style="max-height: 600px; overflow-y: auto;">
                         <div class="skeleton"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Linear Details Sub-content -->
+            <div id="analytics-linear" class="analytics-sub-content">
+                <div class="stat-grid" id="linear-stats">
+                    <div class="stat-card">
+                        <div class="stat-value" id="linear-stat-total">-</div>
+                        <div class="stat-label">Total Issues</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="linear-stat-inprogress">-</div>
+                        <div class="stat-label">In Progress</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="linear-stat-todo">-</div>
+                        <div class="stat-label">Todo</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="linear-stat-backlog">-</div>
+                        <div class="stat-label">Backlog</div>
+                    </div>
+                </div>
+                <div class="dashboard-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title"><i data-lucide="play-circle" class="icon"></i> In Progress</span>
+                        </div>
+                        <div class="card-content" id="linear-inprogress-content" style="max-height: 400px; overflow-y: auto;">
+                            <div class="skeleton"></div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title"><i data-lucide="circle" class="icon"></i> Todo</span>
+                        </div>
+                        <div class="card-content" id="linear-todo-content" style="max-height: 400px; overflow-y: auto;">
+                            <div class="skeleton"></div>
+                        </div>
+                    </div>
+                    <div class="card full-width">
+                        <div class="card-header">
+                            <span class="card-title"><i data-lucide="inbox" class="icon"></i> Backlog</span>
+                        </div>
+                        <div class="card-content" id="linear-backlog-content" style="max-height: 400px; overflow-y: auto;">
+                            <div class="skeleton"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Overnight Sprints Sub-content -->
+            <div id="analytics-overnight" class="analytics-sub-content">
+                <div class="overnight-layout">
+                    <!-- Left: Sprint History Sidebar -->
+                    <div class="card" style="overflow-y: auto;">
+                        <div class="card-header">
+                            <span class="card-title"><i data-lucide="scroll" class="icon"></i> Sprint History</span>
+                            <span class="card-badge" id="overnight-history-count">-</span>
+                        </div>
+                        <div class="card-content" id="overnight-history" style="max-height: none;">
+                            <div class="skeleton"></div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Current Sprint Details -->
+                    <div class="card" style="overflow-y: auto;">
+                        <div class="card-header">
+                            <span class="card-title"><i data-lucide="moon" class="icon"></i> Sprint Details</span>
+                            <span class="card-badge" id="overnight-date">-</span>
+                        </div>
+                        <div class="card-content" id="overnight-content" style="max-height: none;">
+                            <div class="skeleton"></div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <script>
-        let refreshInterval = 300000;
-        let refreshTimer = null;
-        let currentPeriod = 7;
-        let dashboardData = null;
-        let gitChart = null;
-        let kanbanChart = null;
-        let linearChart = null;
-
-        // XSS Prevention: Escape HTML in user-generated content
-        function escapeHtml(unsafe) {
-            if (typeof unsafe !== 'string') return unsafe;
-            return unsafe
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-        }
-
-        function switchTab(tabId) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            
-            event.target.classList.add('active');
-            document.getElementById('tab-' + tabId).classList.add('active');
-
-            if (tabId === 'analytics') loadAnalytics();
-            if (tabId === 'git-detail') renderGitDetails();
-            if (tabId === 'tasks-detail') renderTasksDetails();
-            if (tabId === 'linear-detail') renderLinearDetails();
-            if (tabId === 'overnight') loadOvernight();
-        }
-
-        function setPeriod(days) {
-            currentPeriod = days;
-            document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
-            event.target.classList.add('active');
-            loadAnalytics();
-        }
-
-        async function refreshAll() {
-            const btn = document.getElementById('refresh-btn');
-            const icon = document.getElementById('refresh-icon');
-            btn.disabled = true;
-            icon.classList.add('spinner');
-
-            ['git', 'todoist', 'kanban', 'linear'].forEach(s => {
-                document.getElementById(`status-${s}`).className = 'status-dot loading';
-            });
-
-            try {
-                const response = await fetch('/api/dashboard');
-                dashboardData = await response.json();
-                
-                if (dashboardData.refresh_interval) {
-                    refreshInterval = dashboardData.refresh_interval * 1000;
-                }
-
-                document.getElementById('last-updated').textContent = 
-                    `Updated: ${new Date(dashboardData.timestamp).toLocaleTimeString()}`;
-
-                renderGit(dashboardData.sources.git);
-                renderTodoist(dashboardData.sources.todoist);
-                renderKanban(dashboardData.sources.kanban);
-                renderLinear(dashboardData.sources.linear);
-
-            } catch (error) {
-                console.error('Error:', error);
-                document.getElementById('last-updated').textContent = 'Error loading';
-            } finally {
-                btn.disabled = false;
-                icon.classList.remove('spinner');
-                if (refreshTimer) clearTimeout(refreshTimer);
-                refreshTimer = setTimeout(refreshAll, refreshInterval);
-            }
-        }
-
-        async function loadAnalytics() {
-            try {
-                const resp = await fetch(`/api/analytics/trends?days=${currentPeriod}`);
-                const data = await resp.json();
-                renderCharts(data);
-                updateStats(data);
-            } catch (e) {
-                console.error('Analytics error:', e);
-            }
-        }
-
-        let overnightSprints = [];
-        let selectedSprintId = null;
-
-        async function loadOvernight() {
-            const content = document.getElementById('overnight-content');
-            const history = document.getElementById('overnight-history');
-            const dateBadge = document.getElementById('overnight-date');
-            const historyCount = document.getElementById('overnight-history-count');
-            
-            try {
-                const sprintsResp = await fetch('/api/overnight/sprints?limit=20');
-                const sprintsData = await sprintsResp.json();
-                overnightSprints = sprintsData.sprints || [];
-                
-                if (overnightSprints.length === 0) {
-                    history.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📜</div><div>No sprints yet</div></div>`;
-                    content.innerHTML = `
-                        <div class="empty-state">
-                            <div class="empty-state-icon">🌙</div>
-                            <div>No overnight sprints found</div>
-                            <div style="font-size: 0.8rem; color: var(--text-muted);">Sprint logs are stored in ~/obsidian/claude/1-Projects/0-Dev/01-JeeveSprints/</div>
-                        </div>`;
-                    dateBadge.textContent = '-';
-                    historyCount.textContent = '0';
-                    return;
-                }
-                
-                historyCount.textContent = overnightSprints.length;
-                
-                // Render sidebar history
-                let historyHtml = '';
-                overnightSprints.forEach((s, idx) => {
-                    const sIcon = {'completed': '✅', 'in-progress': '🚀', 'blocked': '🚫', 'pending': '⏳'}[s.status] || '❓';
-                    const isSelected = idx === 0 && !selectedSprintId || s.id === selectedSprintId;
-                    historyHtml += `
-                        <div class="item" onclick="selectSprint('${s.id}')" style="cursor: pointer; margin-bottom: 0.5rem; ${isSelected ? 'border-left-color: var(--accent-teal); background: rgba(56, 178, 172, 0.1);' : ''}">
-                            <div class="item-title" style="display: flex; justify-content: space-between;">
-                                <span>${s.date}</span>
-                                <span>${sIcon}</span>
-                            </div>
-                            <div class="item-meta" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(s.task_title || 'Sprint')}</div>
-                            <div class="item-meta">${s.tasks_completed}/${s.tasks_total} tasks · ${s.gates_passed}/${s.gates_total} gates</div>
-                        </div>`;
-                });
-                history.innerHTML = historyHtml;
-                
-                // Select first sprint if none selected
-                if (!selectedSprintId && overnightSprints.length > 0) {
-                    selectedSprintId = overnightSprints[0].id;
-                }
-                
-                renderSprintDetails(selectedSprintId);
-                
-            } catch (e) {
-                console.error('Overnight error:', e);
-                content.innerHTML = `<div class="error-message">Failed to load overnight data: ${escapeHtml(e.message)}</div>`;
-            }
-        }
-
-        function selectSprint(sprintId) {
-            selectedSprintId = sprintId;
-            loadOvernight();
-        }
-
-        function renderSprintDetails(sprintId) {
-            const content = document.getElementById('overnight-content');
-            const dateBadge = document.getElementById('overnight-date');
-            
-            const sprint = overnightSprints.find(s => s.id === sprintId);
-            if (!sprint) {
-                content.innerHTML = `<div class="empty-state">Sprint not found</div>`;
-                return;
-            }
-            
-            dateBadge.textContent = sprint.date;
-            
-            const statusClass = {
-                'completed': 'accent-green',
-                'in-progress': 'accent-cyan',
-                'blocked': 'accent-coral',
-                'pending': 'accent-orange'
-            }[sprint.status] || 'text-secondary';
-            
-            const statusEmoji = {
-                'completed': '✅',
-                'in-progress': '🚀',
-                'blocked': '🚫',
-                'pending': '⏳'
-            }[sprint.status] || '❓';
-            
-            let html = `
-                <div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                        <div>
-                            <h3 style="margin: 0; font-size: 1.1rem;">${escapeHtml(sprint.task_title || 'Overnight Sprint')}</h3>
-                            <div style="font-size: 0.85rem; color: var(--text-muted);">Task: ${escapeHtml(String(sprint.task_id) || 'N/A')}</div>
-                        </div>
-                        <div style="padding: 0.375rem 0.75rem; background: var(--bg-secondary); border-radius: 6px; color: var(--${statusClass});">
-                            ${statusEmoji} ${sprint.status}
-                        </div>
-                    </div>
-                    
-                    <!-- Progress bar -->
-                    <div style="margin-bottom: 1rem;">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
-                            <span style="font-size: 0.8rem; color: var(--text-muted);">Progress</span>
-                            <span style="font-size: 0.8rem; color: var(--text-muted);">${sprint.tasks_completed}/${sprint.tasks_total}</span>
-                        </div>
-                        <div style="height: 8px; background: var(--bg-secondary); border-radius: 4px; overflow: hidden;">
-                            <div style="height: 100%; width: ${(sprint.tasks_completed / sprint.tasks_total * 100).toFixed(0)}%; background: var(--accent-teal); transition: width 0.3s;"></div>
-                        </div>
-                    </div>
-                    
-                    <!-- Quality Gates -->
-                    <div style="margin-bottom: 1.5rem;">
-                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Quality Gates: ${sprint.gates_passed}/${sprint.gates_total}</div>
-                        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">`;
-            
-            const gateNames = ['tests_passing', 'no_lint_errors', 'docs_updated', 'committed_to_branch', 'self_validated', 'happy_path_works', 'edge_cases_handled', 'pal_reviewed'];
-            const gateLabels = ['Tests', 'Lint', 'Docs', 'Committed', 'Validated', 'Happy Path', 'Edge Cases', 'PAL'];
-            
-            gateNames.forEach((gate, i) => {
-                const passed = sprint.quality_gates && sprint.quality_gates[gate];
-                const icon = passed ? '✓' : '○';
-                const color = passed ? 'var(--accent-green)' : 'var(--text-muted)';
-                html += `<span style="font-size: 0.75rem; padding: 0.25rem 0.5rem; background: var(--bg-secondary); border-radius: 4px; color: ${color};">${icon} ${gateLabels[i]}</span>`;
-            });
-            
-            html += `</div></div>`;
-            
-            // Activity items
-            if (sprint.items && sprint.items.length > 0) {
-                html += `
-                    <div style="margin-bottom: 1.5rem;">
-                        <div style="font-size: 0.9rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.75rem;">📋 Activity Log</div>`;
-                
-                sprint.items.forEach(item => {
-                    const itemIcon = item.status === 'completed' ? '✅' : '❌';
-                    html += `
-                        <div class="item" style="border-left-color: ${item.status === 'completed' ? 'var(--accent-green)' : 'var(--accent-coral)'};">
-                            <div class="item-title">${itemIcon} ${escapeHtml(item.title)}</div>
-                            ${item.result ? `<div class="item-meta">${escapeHtml(item.result)}</div>` : ''}
-                        </div>`;
-                });
-                
-                html += `</div>`;
-            }
-            
-            // Decisions
-            if (sprint.decisions && sprint.decisions.length > 0) {
-                html += `
-                    <div style="margin-bottom: 1.5rem;">
-                        <div style="font-size: 0.9rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.75rem;">💡 Decisions</div>`;
-                sprint.decisions.forEach(d => {
-                    const decisionText = typeof d === 'string' ? d : (d.decision || d.question || JSON.stringify(d));
-                    const rationale = typeof d === 'object' && d.rationale ? `<div class="item-meta">${escapeHtml(d.rationale)}</div>` : '';
-                    html += `<div class="item" style="border-left-color: var(--accent-purple);"><div class="item-title">${escapeHtml(decisionText)}</div>${rationale}</div>`;
-                });
-                html += `</div>`;
-            }
-            
-            // Deviations
-            if (sprint.deviations && sprint.deviations.length > 0) {
-                html += `
-                    <div style="margin-bottom: 1.5rem;">
-                        <div style="font-size: 0.9rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.75rem;">⚠️ Deviations</div>`;
-                sprint.deviations.forEach(d => {
-                    const devText = typeof d === 'string' ? d : (d.deviation || JSON.stringify(d));
-                    const reason = typeof d === 'object' && d.reason ? `<div class="item-meta">${escapeHtml(d.reason)}</div>` : '';
-                    html += `<div class="item" style="border-left-color: var(--accent-orange);"><div class="item-title">${escapeHtml(devText)}</div>${reason}</div>`;
-                });
-                html += `</div>`;
-            }
-            
-            // Block reason
-            if (sprint.block_reason) {
-                html += `
-                    <div class="error-message" style="margin-top: 1rem;">
-                        <strong>🚫 Blocked:</strong> ${escapeHtml(sprint.block_reason)}
-                    </div>`;
-            }
-            
-            html += `</div>`;
-            content.innerHTML = html;
-        }
-
-        function updateStats(data) {
-            const gitData = data.git || [];
-            const kanbanData = data.kanban || [];
-            
-            const totalCommits = gitData.reduce((sum, d) => sum + (d.total_commits || 0), 0);
-            const activeRepos = gitData.length > 0 ? gitData[gitData.length - 1].repos_with_activity || 0 : 0;
-            
-            document.getElementById('stat-commits').textContent = totalCommits;
-            document.getElementById('stat-active-repos').textContent = activeRepos;
-            
-            if (dashboardData) {
-                const todayTasks = dashboardData.sources.todoist?.tasks?.filter(t => t.is_today).length || 0;
-                const inProgress = Object.keys(dashboardData.sources.kanban?.by_column?.['in-progress'] || {}).length;
-                document.getElementById('stat-tasks').textContent = todayTasks;
-                document.getElementById('stat-kanban').textContent = inProgress;
-            }
-        }
-
-        function renderCharts(data) {
-            const gitData = data.git || [];
-            const kanbanData = data.kanban || [];
-            const linearData = data.linear || [];
-
-            // Git Chart
-            const gitCtx = document.getElementById('chart-git').getContext('2d');
-            if (gitChart) gitChart.destroy();
-            
-            gitChart = new Chart(gitCtx, {
-                type: 'line',
-                data: {
-                    labels: gitData.map(d => new Date(d.date).toLocaleDateString('en-GB', {day: 'numeric', month: 'short'})),
-                    datasets: [{
-                        label: 'Commits',
-                        data: gitData.map(d => d.total_commits || 0),
-                        borderColor: '#38b2ac',
-                        backgroundColor: 'rgba(56, 178, 172, 0.1)',
-                        fill: true,
-                        tension: 0.3
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        x: { grid: { color: '#2d3748' }, ticks: { color: '#718096' } },
-                        y: { grid: { color: '#2d3748' }, ticks: { color: '#718096' }, beginAtZero: true }
-                    }
-                }
-            });
-
-            // Kanban Chart
-            const kanbanCtx = document.getElementById('chart-kanban').getContext('2d');
-            if (kanbanChart) kanbanChart.destroy();
-            
-            kanbanChart = new Chart(kanbanCtx, {
-                type: 'line',
-                data: {
-                    labels: kanbanData.map(d => new Date(d.date).toLocaleDateString('en-GB', {day: 'numeric', month: 'short'})),
-                    datasets: [
-                        { label: 'Backlog', data: kanbanData.map(d => d.avg_backlog || 0), borderColor: '#718096', tension: 0.3 },
-                        { label: 'Ready', data: kanbanData.map(d => d.avg_ready || 0), borderColor: '#68d391', tension: 0.3 },
-                        { label: 'In Progress', data: kanbanData.map(d => d.avg_in_progress || 0), borderColor: '#0bc5ea', tension: 0.3 },
-                        { label: 'Done', data: kanbanData.map(d => d.avg_done || 0), borderColor: '#b794f4', tension: 0.3 }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { position: 'bottom', labels: { color: '#a0aec0', boxWidth: 12 } } },
-                    scales: {
-                        x: { grid: { color: '#2d3748' }, ticks: { color: '#718096' } },
-                        y: { grid: { color: '#2d3748' }, ticks: { color: '#718096' }, beginAtZero: true }
-                    }
-                }
-            });
-
-            // Linear Chart
-            const linearCtx = document.getElementById('chart-linear').getContext('2d');
-            if (linearChart) linearChart.destroy();
-            
-            linearChart = new Chart(linearCtx, {
-                type: 'line',
-                data: {
-                    labels: linearData.map(d => new Date(d.date).toLocaleDateString('en-GB', {day: 'numeric', month: 'short'})),
-                    datasets: [
-                        { 
-                            label: 'Total Issues', 
-                            data: linearData.map(d => d.avg_total || 0), 
-                            borderColor: '#38b2ac',
-                            backgroundColor: 'rgba(56, 178, 172, 0.1)',
-                            fill: true,
-                            tension: 0.3 
-                        },
-                        { 
-                            label: 'In Progress', 
-                            data: linearData.map(d => d.statuses?.['In Progress'] || 0), 
-                            borderColor: '#0bc5ea', 
-                            tension: 0.3 
-                        },
-                        { 
-                            label: 'Todo', 
-                            data: linearData.map(d => d.statuses?.['Todo'] || 0), 
-                            borderColor: '#f6ad55', 
-                            tension: 0.3 
-                        },
-                        { 
-                            label: 'Backlog', 
-                            data: linearData.map(d => d.statuses?.['Backlog'] || 0), 
-                            borderColor: '#718096', 
-                            tension: 0.3 
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { position: 'bottom', labels: { color: '#a0aec0', boxWidth: 12 } } },
-                    scales: {
-                        x: { grid: { color: '#2d3748' }, ticks: { color: '#718096' } },
-                        y: { grid: { color: '#2d3748' }, ticks: { color: '#718096' }, beginAtZero: true }
-                    }
-                }
-            });
-        }
-
-        function setStatus(source, status) {
-            document.getElementById(`status-${source}`).className = 'status-dot ' + status;
-        }
-
-        function renderGit(data) {
-            const content = document.getElementById('git-content');
-            const count = document.getElementById('git-count');
-            
-            if (data.status === 'error') {
-                setStatus('git', 'error');
-                content.innerHTML = `<div class="error-message">${data.error}</div>`;
-                return;
-            }
-            setStatus('git', 'ok');
-            
-            if (!data.repos?.length) {
-                content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div>No repos</div>';
-                count.textContent = '0';
-                return;
-            }
-
-            const active = data.repos.filter(r => r.commit_count > 0 || r.is_dirty);
-            count.textContent = active.length + ' active';
-
-            content.innerHTML = data.repos.slice(0, 6).map(repo => {
-                const cls = repo.is_dirty ? 'item dirty' : 'item';
-                let meta = [];
-                if (repo.branch) meta.push(`<span class="tag">${repo.branch}</span>`);
-                if (repo.commit_count) meta.push(`${repo.commit_count} commits`);
-                if (repo.is_dirty) meta.push('⚠️');
-                
-                return `<div class="${cls}"><div class="item-title">${repo.name}</div><div class="item-meta">${meta.join(' · ')}</div></div>`;
-            }).join('');
-        }
-
-        function renderTodoist(data) {
-            const content = document.getElementById('todoist-content');
-            const count = document.getElementById('todoist-count');
-
-            if (data.status === 'not_configured') {
-                setStatus('todoist', 'warning');
-                content.innerHTML = '<div class="setup-prompt">Add token to <code>config.yaml</code></div>';
-                return;
-            }
-            if (data.status === 'error') {
-                setStatus('todoist', 'error');
-                content.innerHTML = `<div class="error-message">${data.error}</div>`;
-                return;
-            }
-            setStatus('todoist', 'ok');
-
-            if (!data.tasks?.length) {
-                content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🎉</div>No tasks!</div>';
-                count.textContent = '0';
-                return;
-            }
-
-            const overdue = data.tasks.filter(t => t.is_overdue).length;
-            count.textContent = overdue ? `${overdue} overdue` : `${data.tasks.filter(t => t.is_today).length} today`;
-
-            content.innerHTML = data.tasks.slice(0, 8).map(task => {
-                const cls = task.is_overdue ? 'item overdue' : task.is_today ? 'item today' : 'item';
-                const icon = task.priority === 4 ? '🔴' : task.priority === 3 ? '🟠' : task.priority === 2 ? '🟡' : '';
-                return `<div class="${cls}"><div class="item-title">${icon} ${escapeHtml(task.content)}</div><div class="item-meta"><span class="tag">${escapeHtml(task.project)}</span>${task.due_date || ''}</div></div>`;
-            }).join('');
-        }
-
-        function renderKanban(data) {
-            const content = document.getElementById('kanban-content');
-            const count = document.getElementById('kanban-count');
-
-            if (data.status === 'unavailable') {
-                setStatus('kanban', 'warning');
-                content.innerHTML = '<div class="setup-prompt">Start board at <code>localhost:8888</code></div>';
-                return;
-            }
-            if (data.status === 'error') {
-                setStatus('kanban', 'error');
-                content.innerHTML = `<div class="error-message">${data.error}</div>`;
-                return;
-            }
-            setStatus('kanban', 'ok');
-
-            const inProgress = data.by_column['in-progress'] || [];
-            const ready = data.by_column['ready'] || [];
-            count.textContent = `${inProgress.length} active`;
-
-            if (!inProgress.length && !ready.length) {
-                content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">😴</div>Nothing active</div>';
-                return;
-            }
-
-            let html = '';
-            if (inProgress.length) {
-                html += '<div style="color:var(--accent-cyan);font-size:0.8rem;margin-bottom:0.5rem;">In Progress</div>';
-                html += inProgress.map(t => `<div class="item in-progress"><div class="item-title">${escapeHtml(t.title)}</div></div>`).join('');
-            }
-            if (ready.length) {
-                html += '<div style="color:var(--text-muted);font-size:0.8rem;margin:0.75rem 0 0.5rem;">Ready</div>';
-                html += ready.slice(0, 3).map(t => `<div class="item"><div class="item-title">${escapeHtml(t.title)}</div></div>`).join('');
-            }
-            content.innerHTML = html;
-        }
-
-        function renderLinear(data) {
-            const content = document.getElementById('linear-content');
-            const count = document.getElementById('linear-count');
-
-            if (data.status === 'not_configured') {
-                setStatus('linear', 'warning');
-                content.innerHTML = '<div class="setup-prompt">Add API key to <code>config.yaml</code></div>';
-                count.textContent = '-';
-                return;
-            }
-            if (data.status === 'error') {
-                setStatus('linear', 'error');
-                content.innerHTML = `<div class="error-message">${data.error}</div>`;
-                return;
-            }
-            setStatus('linear', 'ok');
-
-            if (!data.issues?.length) {
-                content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✨</div>No assigned issues</div>';
-                count.textContent = '0';
-                return;
-            }
-
-            // Count in-progress
-            const inProgress = data.issues.filter(i => i.state_type === 'started').length;
-            count.textContent = inProgress ? `${inProgress} active` : `${data.issues.length} total`;
-
-            content.innerHTML = data.issues.slice(0, 8).map(issue => {
-                const cls = issue.state_type === 'started' ? 'item in-progress' : 'item';
-                const priorityIcon = issue.priority === 1 ? '🔴' : issue.priority === 2 ? '🟠' : issue.priority === 3 ? '🟡' : '';
-                
-                return `
-                    <div class="${cls}">
-                        <div class="item-title">${priorityIcon} ${escapeHtml(issue.identifier)} ${escapeHtml(issue.title)}</div>
-                        <div class="item-meta">
-                            <span class="tag">${escapeHtml(issue.state)}</span>
-                            ${issue.project ? `<span class="tag">${escapeHtml(issue.project)}</span>` : ''}
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        function renderGitDetails() {
-            const content = document.getElementById('git-detail-content');
-            if (!dashboardData?.sources?.git?.repos) {
-                content.innerHTML = '<div class="empty-state">Load dashboard first</div>';
-                return;
-            }
-            
-            content.innerHTML = dashboardData.sources.git.repos.map(repo => {
-                const cls = repo.is_dirty ? 'item dirty' : 'item';
-                const commits = (repo.commits || []).map(c => {
-                    const [hash, ...msg] = c.split(' ');
-                    return `<div class="commit"><span class="commit-hash">${hash}</span> ${msg.join(' ')}</div>`;
-                }).join('');
-                
-                return `
-                    <div class="${cls}">
-                        <div class="item-title">${repo.name}</div>
-                        <div class="item-meta">
-                            <span class="tag">${repo.branch || 'unknown'}</span>
-                            ${repo.commit_count} commits
-                            ${repo.is_dirty ? '⚠️ dirty' : ''}
-                            ${repo.ahead ? `↑${repo.ahead}` : ''}
-                            ${repo.behind ? `↓${repo.behind}` : ''}
-                        </div>
-                        ${commits}
-                    </div>
-                `;
-            }).join('');
-        }
-
-        function renderTasksDetails() {
-            const content = document.getElementById('tasks-detail-content');
-            if (!dashboardData?.sources?.todoist?.tasks) {
-                content.innerHTML = '<div class="empty-state">Load dashboard first</div>';
-                return;
-            }
-            
-            content.innerHTML = dashboardData.sources.todoist.tasks.map(task => {
-                const cls = task.is_overdue ? 'item overdue' : task.is_today ? 'item today' : 'item';
-                const icon = task.priority === 4 ? '🔴' : task.priority === 3 ? '🟠' : task.priority === 2 ? '🟡' : '';
-                
-                return `
-                    <div class="${cls}">
-                        <div class="item-title">${icon} ${escapeHtml(task.content)}</div>
-                        <div class="item-meta">
-                            <span class="tag">${escapeHtml(task.project)}</span>
-                            ${task.due_date ? `Due: ${task.due_date}` : 'No due date'}
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        function renderLinearDetails() {
-            if (!dashboardData?.sources?.linear?.issues) {
-                ['linear-inprogress-content', 'linear-todo-content', 'linear-backlog-content'].forEach(id => {
-                    document.getElementById(id).innerHTML = '<div class="empty-state">Load dashboard first</div>';
-                });
-                return;
-            }
-
-            const linear = dashboardData.sources.linear;
-            const issues = linear.issues || [];
-            const byStatus = linear.by_status || {};
-
-            // Update stats
-            const inProgress = issues.filter(i => i.state_type === 'started').length;
-            const todo = (byStatus['Todo'] || []).length;
-            const backlog = (byStatus['Backlog'] || []).length;
-            
-            document.getElementById('linear-stat-total').textContent = issues.length;
-            document.getElementById('linear-stat-inprogress').textContent = inProgress;
-            document.getElementById('linear-stat-todo').textContent = todo;
-            document.getElementById('linear-stat-backlog').textContent = backlog;
-
-            // Render each section
-            const renderIssueList = (issueList) => {
-                if (!issueList?.length) return '<div class="empty-state">None</div>';
-                return issueList.map(issue => {
-                    const priorityIcon = issue.priority === 1 ? '🔴' : issue.priority === 2 ? '🟠' : issue.priority === 3 ? '🟡' : '';
-                    return `
-                        <div class="item">
-                            <div class="item-title">${priorityIcon} ${escapeHtml(issue.identifier)} ${escapeHtml(issue.title)}</div>
-                            <div class="item-meta">
-                                ${issue.project ? `<span class="tag">${escapeHtml(issue.project)}</span>` : ''}
-                                ${issue.due_date ? `Due: ${issue.due_date}` : ''}
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-            };
-
-            // In Progress - filter by state_type
-            const inProgressIssues = issues.filter(i => i.state_type === 'started');
-            document.getElementById('linear-inprogress-content').innerHTML = renderIssueList(inProgressIssues);
-
-            // Todo
-            document.getElementById('linear-todo-content').innerHTML = renderIssueList(byStatus['Todo']);
-
-            // Backlog
-            document.getElementById('linear-backlog-content').innerHTML = renderIssueList(byStatus['Backlog']);
-        }
-
-        // =============================================================================
-        // Standup Functions
-        // =============================================================================
-
-        let standupData = null;
-
-        async function loadStandup() {
-            try {
-                const resp = await fetch('/api/standup');
-                standupData = await resp.json();
-                renderStandup(standupData);
-            } catch (e) {
-                console.error('Standup error:', e);
-            }
-        }
-
-        function renderStandup(data) {
-            // Date & Weather
-            document.getElementById('standup-date').textContent = data.day_name;
-            
-            if (data.weather?.status === 'ok') {
-                document.getElementById('standup-weather').innerHTML = `
-                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">${data.weather.condition}</div>
-                    <div style="font-size: 1.5rem; color: var(--accent-teal);">${data.weather.temp_c}°C</div>
-                    <div style="color: var(--text-muted); margin-top: 0.5rem;">
-                        Humidity: ${data.weather.humidity}% · Wind: ${data.weather.wind_kph} km/h
-                    </div>
-                `;
-            } else {
-                document.getElementById('standup-weather').innerHTML = '<div class="empty-state">Weather unavailable</div>';
-            }
-            
-            // Summary
-            document.getElementById('standup-summary').innerHTML = `
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; text-align: center;">
-                    <div>
-                        <div style="font-size: 2rem; color: var(--accent-coral);">${data.summary.overdue_count}</div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted);">Overdue</div>
-                    </div>
-                    <div>
-                        <div style="font-size: 2rem; color: var(--accent-teal);">${data.summary.today_count}</div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted);">Today</div>
-                    </div>
-                    <div>
-                        <div style="font-size: 2rem; color: var(--accent-cyan);">${data.summary.in_progress_count}</div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted);">In Progress</div>
-                    </div>
-                </div>
-            `;
-            
-            // Overdue tasks
-            document.getElementById('standup-overdue-count').textContent = data.tasks.overdue.length;
-            if (data.tasks.overdue.length) {
-                document.getElementById('standup-overdue').innerHTML = data.tasks.overdue.map(t => `
-                    <div class="context-item overdue">
-                        <div>${escapeHtml(t.content)}</div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(t.project)} · ${t.due_date}</div>
-                    </div>
-                `).join('');
-            } else {
-                document.getElementById('standup-overdue').innerHTML = '<div class="empty-state">✨ No overdue tasks!</div>';
-            }
-            
-            // Today's tasks
-            document.getElementById('standup-today-count').textContent = data.tasks.today.length;
-            if (data.tasks.today.length) {
-                document.getElementById('standup-today').innerHTML = data.tasks.today.map(t => {
-                    const icon = t.priority === 4 ? '🔴' : t.priority === 3 ? '🟠' : t.priority === 2 ? '🟡' : '⚪';
-                    return `
-                        <div class="context-item today">
-                            <div>${icon} ${escapeHtml(t.content)}</div>
-                            <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(t.project)}</div>
-                        </div>
-                    `;
-                }).join('');
-            } else {
-                document.getElementById('standup-today').innerHTML = '<div class="empty-state">No tasks scheduled for today</div>';
-            }
-            
-            // In Progress (Kanban)
-            document.getElementById('standup-inprogress-count').textContent = data.kanban.in_progress.length;
-            if (data.kanban.in_progress.length) {
-                document.getElementById('standup-inprogress').innerHTML = data.kanban.in_progress.map(t => `
-                    <div class="context-item in-progress">
-                        <div>${escapeHtml(t.title)}</div>
-                        ${t.tags?.length ? `<div style="font-size: 0.75rem; color: var(--text-muted);">${t.tags.map(tag => escapeHtml(tag)).join(', ')}</div>` : ''}
-                    </div>
-                `).join('');
-            } else {
-                document.getElementById('standup-inprogress').innerHTML = '<div class="empty-state">Nothing in progress</div>';
-            }
-        }
-
-        // =============================================================================
-        // Planning Chat Functions
-        // =============================================================================
-
-        let planSessionId = null;
-        let planSocket = null;
-        // Pre-configured gateway token (from clawdbot config)
-        const DEFAULT_GATEWAY_TOKEN = 'f2f8d0074aa8f2bf972bfa072ebdb45cb54d00fd8337f3a7';
-        let gatewayToken = localStorage.getItem('gateway_token') || DEFAULT_GATEWAY_TOKEN;
-
-        async function loadPlanContext() {
-            try {
-                const resp = await fetch('/api/standup');
-                const data = await resp.json();
-                renderPlanContext(data);
-            } catch (e) {
-                console.error('Plan context error:', e);
-            }
-        }
-
-        function renderPlanContext(data) {
-            let html = '';
-            
-            // Overdue
-            if (data.tasks.overdue.length) {
-                html += `<div class="context-section">
-                    <div class="context-section-title">⚠️ Overdue (${data.tasks.overdue.length})</div>
-                    ${data.tasks.overdue.slice(0, 5).map(t => `<div class="context-item overdue">${escapeHtml(t.content)}</div>`).join('')}
-                </div>`;
-            }
-            
-            // Today
-            if (data.tasks.today.length) {
-                html += `<div class="context-section">
-                    <div class="context-section-title">📅 Today (${data.tasks.today.length})</div>
-                    ${data.tasks.today.slice(0, 8).map(t => {
-                        const icon = t.priority === 4 ? '🔴' : t.priority === 3 ? '🟠' : t.priority === 2 ? '🟡' : '⚪';
-                        return `<div class="context-item today">${icon} ${escapeHtml(t.content)}</div>`;
-                    }).join('')}
-                </div>`;
-            }
-            
-            // In Progress
-            if (data.kanban.in_progress.length) {
-                html += `<div class="context-section">
-                    <div class="context-section-title">🚀 In Progress (${data.kanban.in_progress.length})</div>
-                    ${data.kanban.in_progress.map(t => `<div class="context-item in-progress">${escapeHtml(t.title)}</div>`).join('')}
-                </div>`;
-            }
-            
-            // Ready
-            if (data.kanban.ready.length) {
-                html += `<div class="context-section">
-                    <div class="context-section-title">✅ Ready (${data.kanban.ready.length})</div>
-                    ${data.kanban.ready.slice(0, 5).map(t => `<div class="context-item">${escapeHtml(t.title)}</div>`).join('')}
-                </div>`;
-            }
-            
-            document.getElementById('plan-context').innerHTML = html || '<div class="empty-state">No context available</div>';
-        }
-
-        async function togglePlanSession() {
-            if (planSessionId) {
-                await endPlanSession();
-            } else {
-                await startPlanSession();
-            }
-        }
-
-        async function startPlanSession() {
-            // Check for gateway token
-            if (!gatewayToken) {
-                gatewayToken = prompt('Enter Gateway token (from clawdbot config):');
-                if (!gatewayToken) return;
-                localStorage.setItem('gateway_token', gatewayToken);
-            }
-
-            try {
-                // Start session in our backend
-                const resp = await fetch('/api/planning/session', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'start' })
-                });
-                const data = await resp.json();
-                
-                if (data.status === 'ok') {
-                    planSessionId = data.session_id;
-                    document.getElementById('plan-session-status').textContent = `Session #${planSessionId}`;
-                    document.getElementById('plan-session-btn').textContent = 'End Session';
-                    document.getElementById('plan-input').disabled = false;
-                    document.getElementById('plan-send-btn').disabled = false;
-                    document.querySelectorAll('.quick-action').forEach(b => b.disabled = false);
-                    
-                    // Clear messages and add system message
-                    document.getElementById('plan-messages').innerHTML = `
-                        <div class="chat-message system">Planning session started</div>
-                    `;
-                    
-                    // Connect to Gateway WebSocket
-                    connectGateway();
-                    
-                    // Load context
-                    loadPlanContext();
-                }
-            } catch (e) {
-                console.error('Start session error:', e);
-                alert('Failed to start session: ' + e.message);
-            }
-        }
-
-        async function endPlanSession() {
-            if (!planSessionId) return;
-            
-            try {
-                await fetch('/api/planning/session', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'end', session_id: planSessionId })
-                });
-                
-                if (planSocket) {
-                    planSocket.close();
-                    planSocket = null;
-                }
-                
-                addChatMessage('system', 'Planning session ended');
-                
-                planSessionId = null;
-                document.getElementById('plan-session-status').textContent = 'Not started';
-                document.getElementById('plan-session-btn').textContent = 'Start Session';
-                document.getElementById('plan-input').disabled = true;
-                document.getElementById('plan-send-btn').disabled = true;
-                document.querySelectorAll('.quick-action').forEach(b => b.disabled = true);
-                
-            } catch (e) {
-                console.error('End session error:', e);
-            }
-        }
-
-        let gatewayHeartbeat = null;
-
-        function connectGateway() {
-            // Connect with token in URL (Clawdbot Gateway protocol)
-            const wsUrl = `ws://localhost:18789?token=${encodeURIComponent(gatewayToken)}`;
-            planSocket = new WebSocket(wsUrl);
-
-            planSocket.onopen = () => {
-                console.log('Gateway WebSocket connected');
-                addChatMessage('system', '🔌 Connected to Jeeves');
-
-                // Start heartbeat to keep connection alive
-                if (gatewayHeartbeat) clearInterval(gatewayHeartbeat);
-                gatewayHeartbeat = setInterval(() => {
-                    if (planSocket && planSocket.readyState === WebSocket.OPEN) {
-                        planSocket.send(JSON.stringify({ type: 'ping' }));
-                    }
-                }, 5000); // Ping every 5 seconds
-            };
-
-            planSocket.onmessage = (event) => {
-                try {
-                    const msg = JSON.parse(event.data);
-                    // Ignore pong responses
-                    if (msg.type === 'pong') return;
-                    console.log('Gateway message:', msg);
-                    handleGatewayMessage(msg);
-                } catch (e) {
-                    console.error('Gateway message parse error:', e);
-                }
-            };
-
-            planSocket.onerror = (error) => {
-                console.error('Gateway WebSocket error:', error);
-                addChatMessage('system', '⚠️ Gateway connection error - check if Clawdbot is running');
-            };
-
-            planSocket.onclose = (event) => {
-                console.log('Gateway WebSocket closed:', event.code, event.reason);
-                // Stop heartbeat
-                if (gatewayHeartbeat) {
-                    clearInterval(gatewayHeartbeat);
-                    gatewayHeartbeat = null;
-                }
-                if (planSessionId) {
-                    addChatMessage('system', '🔌 Disconnected from Jeeves');
-                }
-            };
-        }
-
-        let currentAssistantMessage = null;
-
-        function handleGatewayMessage(msg) {
-            // Handle different message types from Gateway
-            if (msg.type === 'chat') {
-                const event = msg.event || msg;
-                
-                if (event.kind === 'text' || event.kind === 'chunk') {
-                    // Streaming text
-                    if (!currentAssistantMessage) {
-                        currentAssistantMessage = addChatMessage('assistant', '');
-                    }
-                    currentAssistantMessage.querySelector('.message-content').textContent += event.text || '';
-                    scrollChat();
-                }
-                
-                if (event.kind === 'done' || event.kind === 'end') {
-                    // Message complete
-                    if (currentAssistantMessage) {
-                        const content = currentAssistantMessage.querySelector('.message-content').textContent;
-                        logPlanMessage('assistant', content);
-                    }
-                    currentAssistantMessage = null;
-                    removeTypingIndicator();
-                }
-                
-                if (event.kind === 'tool_start') {
-                    addChatMessage('system', `🔧 Using: ${event.tool || 'tool'}`);
-                }
-            }
-            
-            if (msg.type === 'error') {
-                addChatMessage('system', `⚠️ Error: ${msg.message || 'Unknown error'}`);
-                removeTypingIndicator();
-            }
-        }
-
-        function addChatMessage(role, content) {
-            const messages = document.getElementById('plan-messages');
-            const div = document.createElement('div');
-            div.className = `chat-message ${role}`;
-            div.innerHTML = `
-                <div class="message-content">${content}</div>
-                <div class="timestamp">${new Date().toLocaleTimeString()}</div>
-            `;
-            messages.appendChild(div);
-            scrollChat();
-            return div;
-        }
-
-        function addTypingIndicator() {
-            removeTypingIndicator();
-            const messages = document.getElementById('plan-messages');
-            const div = document.createElement('div');
-            div.id = 'typing-indicator';
-            div.className = 'chat-message assistant';
-            div.innerHTML = '<div class="chat-typing"><span></span><span></span><span></span></div>';
-            messages.appendChild(div);
-            scrollChat();
-        }
-
-        function removeTypingIndicator() {
-            const indicator = document.getElementById('typing-indicator');
-            if (indicator) indicator.remove();
-        }
-
-        function scrollChat() {
-            const messages = document.getElementById('plan-messages');
-            messages.scrollTop = messages.scrollHeight;
-        }
-
-        async function sendPlanMessage() {
-            const input = document.getElementById('plan-input');
-            const message = input.value.trim();
-            if (!message || !planSessionId) return;
-            
-            input.value = '';
-            
-            // Add user message to chat
-            addChatMessage('user', message);
-            logPlanMessage('user', message);
-            
-            // Show typing indicator
-            addTypingIndicator();
-            
-            // Build context for the message
-            const context = standupData ? `
-Current planning context:
-- Overdue tasks: ${standupData?.tasks?.overdue?.length || 0}
-- Today's tasks: ${standupData?.tasks?.today?.length || 0}
-- In progress: ${standupData?.kanban?.in_progress?.length || 0}
-
-Overdue: ${standupData?.tasks?.overdue?.slice(0,5).map(t => t.content).join(', ') || 'None'}
-Today: ${standupData?.tasks?.today?.slice(0,5).map(t => t.content).join(', ') || 'None'}
-` : '';
-            
-            // Send to Gateway using Clawdbot RPC format
-            if (planSocket && planSocket.readyState === WebSocket.OPEN) {
-                const rpcMessage = {
-                    id: Date.now(),
-                    type: 'rpc',
-                    method: 'chat.send',
-                    params: {
-                        message: context + '\n\nUser request: ' + message,
-                        sessionKey: 'main'
-                    }
-                };
-                console.log('Sending to Gateway:', rpcMessage);
-                planSocket.send(JSON.stringify(rpcMessage));
-            } else {
-                removeTypingIndicator();
-                addChatMessage('system', '⚠️ Not connected to Gateway - click Start Session to reconnect');
-            }
-        }
-
-        function sendQuickAction(action) {
-            document.getElementById('plan-input').value = action;
-            sendPlanMessage();
-        }
-
-        async function logPlanMessage(role, content) {
-            if (!planSessionId) return;
-            try {
-                await fetch('/api/planning/message', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        session_id: planSessionId,
-                        role: role,
-                        content: content
-                    })
-                });
-            } catch (e) {
-                console.error('Log message error:', e);
-            }
-        }
-
-        // Update switchTab to load standup/plan data
-        const originalSwitchTab = switchTab;
-        switchTab = function(tabId) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            
-            event.target.classList.add('active');
-            document.getElementById('tab-' + tabId).classList.add('active');
-
-            if (tabId === 'analytics') loadAnalytics();
-            if (tabId === 'git-detail') renderGitDetails();
-            if (tabId === 'tasks-detail') renderTasksDetails();
-            if (tabId === 'linear-detail') renderLinearDetails();
-            if (tabId === 'standup') loadStandup();
-            if (tabId === 'plan') { loadPlanContext(); loadStandup(); }
-            if (tabId === 'overnight') loadOvernight();
-        };
-
-        // Initial load
-        refreshAll();
-        // Pre-load overnight data
-        loadOvernight();
-    </script>
+    <!-- Modal Overlay -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title"></h3>
+                <button class="modal-close">
+                    <i data-lucide="x" class="icon"></i>
+                </button>
+            </div>
+            <div class="modal-body"></div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
 </body>
 </html>
