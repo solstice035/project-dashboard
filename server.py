@@ -22,9 +22,13 @@ import yaml
 import requests
 from flask import Flask, jsonify, send_from_directory, request
 
-# Import database module
+from utils import group_items_by_key
+
+# Import database, planning, and overnight sprint modules
 try:
     import database as db
+    import planning
+    import overnight_sprint
     DB_AVAILABLE = True
 except ImportError:
     DB_AVAILABLE = False
@@ -256,14 +260,7 @@ def fetch_kanban() -> dict[str, Any]:
         tasks = resp.json()
         
         result['tasks'] = tasks
-        
-        # Group by column
-        for task in tasks:
-            col = task.get('column', 'unknown')
-            if col not in result['by_column']:
-                result['by_column'][col] = []
-            result['by_column'][col].append(task)
-        
+        result['by_column'] = group_items_by_key(tasks, 'column')
         return result
         
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
@@ -272,38 +269,32 @@ def fetch_kanban() -> dict[str, Any]:
         logger.warning(f"Kanban API error, trying PostgreSQL: {e}")
     
     # Fallback to PostgreSQL
+    if not DB_AVAILABLE:
+        result['status'] = 'error'
+        result['error'] = 'Both API and database unavailable'
+        return result
+
     try:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        
-        conn = psycopg2.connect(dbname='nick', host='localhost', cursor_factory=RealDictCursor)
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT id, title, description, column_name as column, tags, 
-                   priority, position, created_at, updated_at
-            FROM kanban_tasks 
-            ORDER BY column_name, position
-        """)
-        tasks = [dict(row) for row in cur.fetchall()]
-        conn.close()
-        
+        with db.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, title, description, column_name as column, tags,
+                       priority, position, created_at, updated_at
+                FROM kanban_tasks
+                ORDER BY column_name, position
+            """)
+            tasks = [dict(row) for row in cur.fetchall()]
+
         result['tasks'] = tasks
         result['source'] = 'database'
-        
-        # Group by column
-        for task in tasks:
-            col = task.get('column', 'unknown')
-            if col not in result['by_column']:
-                result['by_column'][col] = []
-            result['by_column'][col].append(task)
-        
+        result['by_column'] = group_items_by_key(tasks, 'column')
         logger.info(f"Loaded {len(tasks)} tasks from PostgreSQL")
-        
+
     except Exception as e:
         result['status'] = 'error'
         result['error'] = f'Both API and database unavailable: {e}'
         logger.error(f"Kanban PostgreSQL fallback error: {e}")
-    
+
     return result
 
 
@@ -625,79 +616,34 @@ def manage_planning_session():
     """Start or end a planning session."""
     if not DB_AVAILABLE:
         return jsonify({'error': 'Database not available'}), 503
-    
+
     data = request.get_json() or {}
     action = data.get('action')
-    
-    try:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        conn = psycopg2.connect(dbname='nick', host='localhost', cursor_factory=RealDictCursor)
-        cur = conn.cursor()
-        
-        if action == 'start':
-            # Get current context
-            context = {
+
+    if action == 'start':
+        def get_context():
+            return {
                 'tasks': fetch_todoist().get('tasks', [])[:20],
                 'kanban': fetch_kanban().get('by_column', {})
             }
-            
-            cur.execute("""
-                INSERT INTO planning_sessions (initial_context)
-                VALUES (%s)
-                RETURNING id, started_at
-            """, (json.dumps(context),))
-            
-            result = cur.fetchone()
-            conn.commit()
-            
-            return jsonify({
-                'status': 'ok',
-                'session_id': result['id'],
-                'started_at': result['started_at'].isoformat(),
-                'context': context
-            })
-            
-        elif action == 'end':
-            session_id = data.get('session_id')
-            if not session_id:
-                return jsonify({'error': 'session_id required'}), 400
-            
-            # Calculate duration and update
-            cur.execute("""
-                UPDATE planning_sessions
-                SET ended_at = NOW(),
-                    duration_seconds = EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER,
-                    final_state = %s,
-                    messages_count = (SELECT COUNT(*) FROM planning_messages WHERE session_id = %s),
-                    actions_count = (SELECT COUNT(*) FROM planning_actions WHERE session_id = %s)
-                WHERE id = %s
-                RETURNING id, duration_seconds, messages_count, actions_count
-            """, (json.dumps(data.get('final_state', {})), session_id, session_id, session_id))
-            
-            result = cur.fetchone()
-            conn.commit()
-            
-            if result:
-                return jsonify({
-                    'status': 'ok',
-                    'session_id': result['id'],
-                    'duration_seconds': result['duration_seconds'],
-                    'messages_count': result['messages_count'],
-                    'actions_count': result['actions_count']
-                })
-            else:
-                return jsonify({'error': 'Session not found'}), 404
-        
-        else:
-            return jsonify({'error': 'Invalid action. Use start or end'}), 400
-            
-    except Exception as e:
-        logger.error(f"Planning session error: {e}")
-        return jsonify({'error': str(e)}), 500
-    finally:
-        if 'conn' in locals():
-            conn.close()
+        result = planning.start_planning_session(get_context)
+        if result.get('status') == 'error':
+            return jsonify(result), 500
+        return jsonify(result)
+
+    elif action == 'end':
+        session_id = data.get('session_id')
+        if not session_id:
+            return jsonify({'error': 'session_id required'}), 400
+        result = planning.end_planning_session(session_id, data.get('final_state', {}))
+        if result.get('error') == 'Session not found':
+            return jsonify(result), 404
+        if result.get('status') == 'error':
+            return jsonify(result), 500
+        return jsonify(result)
+
+    else:
+        return jsonify({'error': 'Invalid action. Use start or end'}), 400
 
 
 @app.route('/api/planning/action', methods=['POST'])
@@ -705,43 +651,25 @@ def log_planning_action():
     """Log a planning action (task change)."""
     if not DB_AVAILABLE:
         return jsonify({'error': 'Database not available'}), 503
-    
+
     data = request.get_json() or {}
     required = ['session_id', 'action_type']
-    
+
     if not all(k in data for k in required):
         return jsonify({'error': f'Required fields: {required}'}), 400
-    
-    try:
-        import psycopg2
-        conn = psycopg2.connect(dbname='nick', host='localhost')
-        cur = conn.cursor()
-        
-        cur.execute("""
-            INSERT INTO planning_actions 
-            (session_id, action_type, target_type, target_id, target_title, details)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING id
-        """, (
-            data['session_id'],
-            data['action_type'],
-            data.get('target_type'),
-            data.get('target_id'),
-            data.get('target_title'),
-            json.dumps(data.get('details', {}))
-        ))
-        
-        action_id = cur.fetchone()[0]
-        conn.commit()
-        
-        return jsonify({'status': 'ok', 'action_id': action_id})
-        
-    except Exception as e:
-        logger.error(f"Planning action error: {e}")
-        return jsonify({'error': str(e)}), 500
-    finally:
-        if 'conn' in locals():
-            conn.close()
+
+    result = planning.log_action(
+        session_id=data['session_id'],
+        action_type=data['action_type'],
+        target_type=data.get('target_type'),
+        target_id=data.get('target_id'),
+        target_title=data.get('target_title'),
+        details=data.get('details', {})
+    )
+
+    if result.get('status') == 'error':
+        return jsonify(result), 500
+    return jsonify(result)
 
 
 @app.route('/api/planning/message', methods=['POST'])
@@ -749,41 +677,23 @@ def log_planning_message():
     """Log a chat message in the planning session."""
     if not DB_AVAILABLE:
         return jsonify({'error': 'Database not available'}), 503
-    
+
     data = request.get_json() or {}
     required = ['session_id', 'role', 'content']
-    
+
     if not all(k in data for k in required):
         return jsonify({'error': f'Required fields: {required}'}), 400
-    
-    try:
-        import psycopg2
-        conn = psycopg2.connect(dbname='nick', host='localhost')
-        cur = conn.cursor()
-        
-        cur.execute("""
-            INSERT INTO planning_messages 
-            (session_id, role, content, tokens_used)
-            VALUES (%s, %s, %s, %s)
-            RETURNING id
-        """, (
-            data['session_id'],
-            data['role'],
-            data['content'],
-            data.get('tokens_used')
-        ))
-        
-        msg_id = cur.fetchone()[0]
-        conn.commit()
-        
-        return jsonify({'status': 'ok', 'message_id': msg_id})
-        
-    except Exception as e:
-        logger.error(f"Planning message error: {e}")
-        return jsonify({'error': str(e)}), 500
-    finally:
-        if 'conn' in locals():
-            conn.close()
+
+    result = planning.log_message(
+        session_id=data['session_id'],
+        role=data['role'],
+        content=data['content'],
+        tokens_used=data.get('tokens_used')
+    )
+
+    if result.get('status') == 'error':
+        return jsonify(result), 500
+    return jsonify(result)
 
 
 @app.route('/api/planning/analytics')
@@ -791,428 +701,32 @@ def get_planning_analytics():
     """Get planning analytics and trends."""
     if not DB_AVAILABLE:
         return jsonify({'error': 'Database not available'}), 503
-    
+
     days = request.args.get('days', 30, type=int)
-    
-    try:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        conn = psycopg2.connect(dbname='nick', host='localhost', cursor_factory=RealDictCursor)
-        cur = conn.cursor()
-        
-        # Recent sessions
-        cur.execute("""
-            SELECT id, started_at, ended_at, duration_seconds, 
-                   messages_count, actions_count
-            FROM planning_sessions
-            WHERE started_at > NOW() - INTERVAL '%s days'
-            ORDER BY started_at DESC
-            LIMIT 20
-        """, (days,))
-        sessions = [dict(row) for row in cur.fetchall()]
-        
-        # Action type breakdown
-        cur.execute("""
-            SELECT action_type, COUNT(*) as count
-            FROM planning_actions
-            WHERE action_at > NOW() - INTERVAL '%s days'
-            GROUP BY action_type
-            ORDER BY count DESC
-        """, (days,))
-        action_breakdown = [dict(row) for row in cur.fetchall()]
-        
-        # Totals
-        cur.execute("""
-            SELECT 
-                COUNT(*) as total_sessions,
-                COALESCE(SUM(duration_seconds), 0) as total_duration,
-                COALESCE(SUM(messages_count), 0) as total_messages,
-                COALESCE(SUM(actions_count), 0) as total_actions,
-                COALESCE(AVG(duration_seconds), 0) as avg_duration
-            FROM planning_sessions
-            WHERE started_at > NOW() - INTERVAL '%s days'
-              AND ended_at IS NOT NULL
-        """, (days,))
-        totals = dict(cur.fetchone())
-        
-        conn.close()
-        
-        return jsonify({
-            'days': days,
-            'sessions': sessions,
-            'action_breakdown': action_breakdown,
-            'totals': totals
-        })
-        
-    except Exception as e:
-        logger.error(f"Planning analytics error: {e}")
-        return jsonify({'error': str(e)}), 500
+    return jsonify(planning.get_analytics(days))
 
 
 # =============================================================================
 # Overnight Sprint
 # =============================================================================
 
-SPRINT_LOGS_PATH = Path(os.path.expanduser(
-    '~/obsidian/claude/1-Projects/0-Dev/01-JeeveSprints'
-))
-
-
-def parse_sprint_log(file_path: Path) -> dict | None:
-    """Parse a sprint log markdown file with YAML frontmatter."""
-    try:
-        content = file_path.read_text()
-        if not content.startswith('---\n'):
-            return None
-        
-        parts = content.split('---\n', 2)
-        if len(parts) < 3:
-            return None
-        
-        frontmatter = yaml.safe_load(parts[1])
-        file_name = file_path.stem
-        
-        # Map activity log to items
-        items = []
-        for idx, entry in enumerate(frontmatter.get('activity_log', [])):
-            status = 'completed' if entry.get('activity_type') in ['complete', 'progress', 'start', 'decision'] else 'failed'
-            items.append({
-                'id': f"{file_name}-{idx}",
-                'title': entry.get('what', ''),
-                'status': status,
-                'started_at': str(entry.get('timestamp')) if entry.get('timestamp') else None,
-                'result': entry.get('outcome', ''),
-                'activity_type': entry.get('activity_type'),
-                'why': entry.get('why'),
-            })
-        
-        completed_items = len([i for i in items if i['status'] == 'completed'])
-        
-        # Quality gates
-        qg = frontmatter.get('quality_gates', {})
-        gates_passed = sum(1 for v in qg.values() if v is True)
-        
-        return {
-            'id': file_name,
-            'date': file_name,
-            'task_id': frontmatter.get('task_id'),
-            'task_title': frontmatter.get('task_title'),
-            'status': frontmatter.get('status', 'pending'),
-            'started_at': frontmatter.get('window_start'),
-            'completed_at': frontmatter.get('window_end'),
-            'tasks_completed': completed_items,
-            'tasks_total': len(items) or 1,
-            'summary': f"{frontmatter.get('task_title', 'Sprint')} - {frontmatter.get('status', 'pending')}",
-            'handoff_notes': None,
-            'items': items,
-            'quality_gates': qg,
-            'gates_passed': gates_passed,
-            'gates_total': 8,
-            'decisions': frontmatter.get('decisions', []),
-            'deviations': frontmatter.get('deviations', []),
-            'block_reason': frontmatter.get('block_reason'),
-            'obsidian_path': str(file_path),
-        }
-    except Exception as e:
-        logger.error(f"Failed to parse sprint log {file_path}: {e}")
-        return None
-
-
-def save_sprint_to_db(sprint: dict) -> int | None:
-    """Save a sprint to the database. Returns sprint ID."""
-    if not DB_AVAILABLE:
-        return None
-    
-    try:
-        import psycopg2
-        conn = psycopg2.connect(dbname='nick', host='localhost')
-        cur = conn.cursor()
-        
-        qg = sprint.get('quality_gates', {})
-        
-        # Upsert sprint
-        cur.execute("""
-            INSERT INTO overnight_sprints (
-                sprint_date, task_id, task_title, status,
-                started_at, completed_at, window_start, window_end,
-                gate_tests_passing, gate_no_lint_errors, gate_docs_updated,
-                gate_committed, gate_self_validated, gate_happy_path,
-                gate_edge_cases, gate_pal_reviewed,
-                tasks_completed, tasks_total, gates_passed,
-                block_reason, obsidian_path, updated_at
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, NOW()
-            )
-            ON CONFLICT (sprint_date) DO UPDATE SET
-                task_id = EXCLUDED.task_id,
-                task_title = EXCLUDED.task_title,
-                status = EXCLUDED.status,
-                started_at = EXCLUDED.started_at,
-                completed_at = EXCLUDED.completed_at,
-                gate_tests_passing = EXCLUDED.gate_tests_passing,
-                gate_no_lint_errors = EXCLUDED.gate_no_lint_errors,
-                gate_docs_updated = EXCLUDED.gate_docs_updated,
-                gate_committed = EXCLUDED.gate_committed,
-                gate_self_validated = EXCLUDED.gate_self_validated,
-                gate_happy_path = EXCLUDED.gate_happy_path,
-                gate_edge_cases = EXCLUDED.gate_edge_cases,
-                gate_pal_reviewed = EXCLUDED.gate_pal_reviewed,
-                tasks_completed = EXCLUDED.tasks_completed,
-                tasks_total = EXCLUDED.tasks_total,
-                gates_passed = EXCLUDED.gates_passed,
-                block_reason = EXCLUDED.block_reason,
-                obsidian_path = EXCLUDED.obsidian_path,
-                updated_at = NOW()
-            RETURNING id
-        """, (
-            sprint['date'], sprint.get('task_id'), sprint.get('task_title'), sprint.get('status', 'pending'),
-            sprint.get('started_at'), sprint.get('completed_at'), sprint.get('started_at'), sprint.get('completed_at'),
-            qg.get('tests_passing', False), qg.get('no_lint_errors', False), qg.get('docs_updated', False),
-            qg.get('committed_to_branch', False), qg.get('self_validated', False), qg.get('happy_path_works', False),
-            qg.get('edge_cases_handled', False), qg.get('pal_reviewed', False),
-            sprint.get('tasks_completed', 0), sprint.get('tasks_total', 0), sprint.get('gates_passed', 0),
-            sprint.get('block_reason'), sprint.get('obsidian_path')
-        ))
-        
-        sprint_id = cur.fetchone()[0]
-        
-        # Delete existing related data for re-sync
-        cur.execute("DELETE FROM overnight_activity WHERE sprint_id = %s", (sprint_id,))
-        cur.execute("DELETE FROM overnight_decisions WHERE sprint_id = %s", (sprint_id,))
-        cur.execute("DELETE FROM overnight_deviations WHERE sprint_id = %s", (sprint_id,))
-        
-        # Insert activity items
-        for item in sprint.get('items', []):
-            cur.execute("""
-                INSERT INTO overnight_activity (sprint_id, activity_at, activity_type, what, why, outcome)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (
-                sprint_id,
-                item.get('started_at') or datetime.now(),
-                item.get('activity_type', 'progress'),
-                item.get('title', ''),
-                item.get('why'),
-                item.get('result')
-            ))
-        
-        # Insert decisions
-        for d in sprint.get('decisions', []):
-            if isinstance(d, dict):
-                cur.execute("""
-                    INSERT INTO overnight_decisions (sprint_id, decided_at, question, context, decision, rationale, confidence, pal_responses, consensus)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    sprint_id,
-                    d.get('timestamp') or datetime.now(),
-                    d.get('question', ''),
-                    d.get('context'),
-                    d.get('decision', ''),
-                    d.get('rationale'),
-                    d.get('confidence'),
-                    json.dumps(d.get('pal_responses', {})),
-                    d.get('consensus')
-                ))
-        
-        # Insert deviations
-        for d in sprint.get('deviations', []):
-            if isinstance(d, dict):
-                cur.execute("""
-                    INSERT INTO overnight_deviations (sprint_id, deviated_at, original_scope, deviation, reason, flagged)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                """, (
-                    sprint_id,
-                    d.get('timestamp') or datetime.now(),
-                    d.get('original_scope'),
-                    d.get('deviation', ''),
-                    d.get('reason'),
-                    d.get('flagged', False)
-                ))
-        
-        conn.commit()
-        conn.close()
-        
-        logger.info(f"Saved sprint {sprint['date']} to database (id={sprint_id})")
-        return sprint_id
-        
-    except Exception as e:
-        logger.error(f"Failed to save sprint to DB: {e}")
-        return None
-
-
-def get_sprints_from_db(limit: int = 20) -> list:
-    """Get sprints from database with all related data."""
-    if not DB_AVAILABLE:
-        return []
-    
-    try:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        
-        conn = psycopg2.connect(dbname='nick', host='localhost', cursor_factory=RealDictCursor)
-        cur = conn.cursor()
-        
-        cur.execute("""
-            SELECT id, sprint_date, task_id, task_title, status,
-                   started_at, completed_at,
-                   gate_tests_passing, gate_no_lint_errors, gate_docs_updated,
-                   gate_committed, gate_self_validated, gate_happy_path,
-                   gate_edge_cases, gate_pal_reviewed,
-                   tasks_completed, tasks_total, gates_passed,
-                   block_reason, obsidian_path
-            FROM overnight_sprints
-            ORDER BY sprint_date DESC
-            LIMIT %s
-        """, (limit,))
-        
-        rows = cur.fetchall()
-        sprints = []
-        
-        for row in rows:
-            sprint_id = row['id']
-            
-            # Get activity
-            cur.execute("""
-                SELECT activity_at, activity_type, what, why, outcome
-                FROM overnight_activity
-                WHERE sprint_id = %s
-                ORDER BY activity_at
-            """, (sprint_id,))
-            activities = cur.fetchall()
-            
-            items = []
-            for idx, a in enumerate(activities):
-                status = 'completed' if a['activity_type'] in ['complete', 'progress', 'start', 'decision'] else 'failed'
-                items.append({
-                    'id': f"{row['sprint_date']}-{idx}",
-                    'title': a['what'],
-                    'status': status,
-                    'started_at': str(a['activity_at']) if a['activity_at'] else None,
-                    'result': a['outcome'],
-                })
-            
-            # Get decisions
-            cur.execute("""
-                SELECT decided_at, question, context, decision, rationale, confidence, pal_responses, consensus
-                FROM overnight_decisions
-                WHERE sprint_id = %s
-                ORDER BY decided_at
-            """, (sprint_id,))
-            decisions = [dict(d) for d in cur.fetchall()]
-            
-            # Get deviations
-            cur.execute("""
-                SELECT deviated_at, original_scope, deviation, reason, flagged
-                FROM overnight_deviations
-                WHERE sprint_id = %s
-                ORDER BY deviated_at
-            """, (sprint_id,))
-            deviations = [dict(d) for d in cur.fetchall()]
-            
-            # Build quality gates dict
-            qg = {
-                'tests_passing': row['gate_tests_passing'],
-                'no_lint_errors': row['gate_no_lint_errors'],
-                'docs_updated': row['gate_docs_updated'],
-                'committed_to_branch': row['gate_committed'],
-                'self_validated': row['gate_self_validated'],
-                'happy_path_works': row['gate_happy_path'],
-                'edge_cases_handled': row['gate_edge_cases'],
-                'pal_reviewed': row['gate_pal_reviewed'],
-            }
-            
-            sprints.append({
-                'id': str(row['sprint_date']),
-                'date': str(row['sprint_date']),
-                'task_id': row['task_id'],
-                'task_title': row['task_title'],
-                'status': row['status'],
-                'started_at': str(row['started_at']) if row['started_at'] else None,
-                'completed_at': str(row['completed_at']) if row['completed_at'] else None,
-                'tasks_completed': row['tasks_completed'],
-                'tasks_total': row['tasks_total'],
-                'quality_gates': qg,
-                'gates_passed': row['gates_passed'],
-                'gates_total': 8,
-                'items': items,
-                'decisions': decisions,
-                'deviations': deviations,
-                'block_reason': row['block_reason'],
-            })
-        
-        conn.close()
-        return sprints
-        
-    except Exception as e:
-        logger.error(f"Failed to get sprints from DB: {e}")
-        return []
-
-
 @app.route('/api/overnight/current')
 def get_overnight_current():
     """Get current or most recent overnight sprint."""
-    try:
-        # Try DB first
-        sprints = get_sprints_from_db(limit=1)
-        if sprints:
-            return jsonify({'sprint': sprints[0], 'source': 'database'})
-        
-        # Fallback to Obsidian
-        if not SPRINT_LOGS_PATH.exists():
-            return jsonify({'sprint': None})
-        
-        today = datetime.now().strftime('%Y-%m-%d')
-        today_file = SPRINT_LOGS_PATH / f"{today}.md"
-        
-        if today_file.exists():
-            sprint = parse_sprint_log(today_file)
-            if sprint:
-                save_sprint_to_db(sprint)  # Auto-migrate to DB
-                return jsonify({'sprint': sprint, 'source': 'obsidian'})
-        
-        md_files = sorted(SPRINT_LOGS_PATH.glob('*.md'), reverse=True)
-        for f in md_files[:1]:
-            sprint = parse_sprint_log(f)
-            if sprint:
-                save_sprint_to_db(sprint)
-                return jsonify({'sprint': sprint, 'source': 'obsidian'})
-        
-        return jsonify({'sprint': None})
-    
-    except Exception as e:
-        logger.error(f"Overnight current error: {e}")
-        return jsonify({'error': str(e)}), 500
+    result = overnight_sprint.get_current_sprint()
+    if 'error' in result:
+        return jsonify(result), 500
+    return jsonify(result)
 
 
 @app.route('/api/overnight/sprints')
 def get_overnight_sprints():
     """Get list of recent sprints. Prefers database, falls back to Obsidian."""
-    try:
-        limit = request.args.get('limit', 20, type=int)
-        
-        # Try DB first
-        sprints = get_sprints_from_db(limit=limit)
-        if sprints:
-            return jsonify({'sprints': sprints, 'source': 'database', 'count': len(sprints)})
-        
-        # Fallback to Obsidian
-        if not SPRINT_LOGS_PATH.exists():
-            return jsonify({'sprints': [], 'source': 'none'})
-        
-        md_files = sorted(SPRINT_LOGS_PATH.glob('*.md'), reverse=True)[:limit]
-        sprints = []
-        
-        for f in md_files:
-            sprint = parse_sprint_log(f)
-            if sprint:
-                sprints.append(sprint)
-        
-        return jsonify({'sprints': sprints, 'source': 'obsidian', 'count': len(sprints)})
-    
-    except Exception as e:
-        logger.error(f"Overnight sprints error: {e}")
-        return jsonify({'error': str(e)}), 500
+    limit = request.args.get('limit', 20, type=int)
+    result = overnight_sprint.get_recent_sprints(limit=limit)
+    if 'error' in result:
+        return jsonify(result), 500
+    return jsonify(result)
 
 
 @app.route('/api/overnight/sync', methods=['POST'])
@@ -1220,34 +734,13 @@ def sync_overnight_sprints():
     """Sync all Obsidian sprint logs to database."""
     if not DB_AVAILABLE:
         return jsonify({'error': 'Database not available'}), 503
-    
-    try:
-        if not SPRINT_LOGS_PATH.exists():
-            return jsonify({'error': 'Sprint logs path not found', 'path': str(SPRINT_LOGS_PATH)}), 404
-        
-        md_files = sorted(SPRINT_LOGS_PATH.glob('*.md'))
-        synced = 0
-        errors = []
-        
-        for f in md_files:
-            sprint = parse_sprint_log(f)
-            if sprint:
-                result = save_sprint_to_db(sprint)
-                if result:
-                    synced += 1
-                else:
-                    errors.append(f.name)
-        
-        return jsonify({
-            'status': 'ok',
-            'synced': synced,
-            'total_files': len(md_files),
-            'errors': errors
-        })
-    
-    except Exception as e:
-        logger.error(f"Overnight sync error: {e}")
-        return jsonify({'error': str(e)}), 500
+
+    result = overnight_sprint.sync_sprints_from_obsidian()
+    if 'error' in result and 'path' in result:
+        return jsonify(result), 404
+    if 'error' in result:
+        return jsonify(result), 500
+    return jsonify(result)
 
 
 # =============================================================================
