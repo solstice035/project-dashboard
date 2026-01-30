@@ -743,8 +743,8 @@
                                 <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Quality Gates: ${sprint.gates_passed}/${sprint.gates_total}</div>
                                 <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">`;
                     
-                    const gateNames = ['lint_pass', 'type_check', 'unit_tests', 'integration_tests', 'no_regressions', 'docs_updated', 'clean_diff', 'pal_consensus'];
-                    const gateLabels = ['Lint', 'Types', 'Unit', 'Integration', 'No Regress', 'Docs', 'Clean Diff', 'PAL'];
+                    const gateNames = ['tests_passing', 'no_lint_errors', 'docs_updated', 'committed_to_branch', 'self_validated', 'happy_path_works', 'edge_cases_handled', 'pal_reviewed'];
+                    const gateLabels = ['Tests', 'Lint', 'Docs', 'Committed', 'Validated', 'Happy Path', 'Edge Cases', 'PAL'];
                     
                     gateNames.forEach((gate, i) => {
                         const passed = sprint.quality_gates && sprint.quality_gates[gate];
