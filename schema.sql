@@ -132,3 +132,93 @@ CREATE TABLE IF NOT EXISTS planning_daily_stats (
 );
 
 CREATE INDEX IF NOT EXISTS idx_planning_daily_date ON planning_daily_stats(stat_date);
+
+-- =============================================================================
+-- Overnight Sprint Tables
+-- =============================================================================
+
+-- Overnight sprints (one per night)
+CREATE TABLE IF NOT EXISTS overnight_sprints (
+    id SERIAL PRIMARY KEY,
+    sprint_date DATE NOT NULL UNIQUE,
+    task_id VARCHAR(100),
+    task_title TEXT,
+    status VARCHAR(50) NOT NULL DEFAULT 'pending',  -- pending, in-progress, completed, blocked
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    window_start TIMESTAMP,
+    window_end TIMESTAMP,
+    
+    -- Quality gates (stored as individual booleans for easy querying)
+    gate_tests_passing BOOLEAN DEFAULT FALSE,
+    gate_no_lint_errors BOOLEAN DEFAULT FALSE,
+    gate_docs_updated BOOLEAN DEFAULT FALSE,
+    gate_committed BOOLEAN DEFAULT FALSE,
+    gate_self_validated BOOLEAN DEFAULT FALSE,
+    gate_happy_path BOOLEAN DEFAULT FALSE,
+    gate_edge_cases BOOLEAN DEFAULT FALSE,
+    gate_pal_reviewed BOOLEAN DEFAULT FALSE,
+    
+    -- Counts
+    tasks_completed INTEGER DEFAULT 0,
+    tasks_total INTEGER DEFAULT 0,
+    gates_passed INTEGER DEFAULT 0,
+    
+    -- Block info
+    block_reason TEXT,
+    
+    -- Source file reference
+    obsidian_path TEXT,
+    
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_overnight_sprints_date ON overnight_sprints(sprint_date DESC);
+CREATE INDEX IF NOT EXISTS idx_overnight_sprints_status ON overnight_sprints(status);
+
+-- Overnight sprint activity log
+CREATE TABLE IF NOT EXISTS overnight_activity (
+    id SERIAL PRIMARY KEY,
+    sprint_id INTEGER REFERENCES overnight_sprints(id) ON DELETE CASCADE,
+    activity_at TIMESTAMP NOT NULL,
+    activity_type VARCHAR(50) NOT NULL,  -- start, progress, complete, decision, block
+    what TEXT NOT NULL,
+    why TEXT,
+    outcome TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_overnight_activity_sprint ON overnight_activity(sprint_id);
+CREATE INDEX IF NOT EXISTS idx_overnight_activity_time ON overnight_activity(activity_at);
+
+-- Overnight sprint decisions
+CREATE TABLE IF NOT EXISTS overnight_decisions (
+    id SERIAL PRIMARY KEY,
+    sprint_id INTEGER REFERENCES overnight_sprints(id) ON DELETE CASCADE,
+    decided_at TIMESTAMP NOT NULL,
+    question TEXT NOT NULL,
+    context TEXT,
+    decision TEXT NOT NULL,
+    rationale TEXT,
+    confidence VARCHAR(20),  -- high, medium, low
+    pal_responses JSONB,
+    consensus TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_overnight_decisions_sprint ON overnight_decisions(sprint_id);
+
+-- Overnight sprint deviations
+CREATE TABLE IF NOT EXISTS overnight_deviations (
+    id SERIAL PRIMARY KEY,
+    sprint_id INTEGER REFERENCES overnight_sprints(id) ON DELETE CASCADE,
+    deviated_at TIMESTAMP NOT NULL,
+    original_scope TEXT,
+    deviation TEXT NOT NULL,
+    reason TEXT,
+    flagged BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_overnight_deviations_sprint ON overnight_deviations(sprint_id);

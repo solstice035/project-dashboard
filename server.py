@@ -882,6 +882,8 @@ def parse_sprint_log(file_path: Path) -> dict | None:
                 'status': status,
                 'started_at': str(entry.get('timestamp')) if entry.get('timestamp') else None,
                 'result': entry.get('outcome', ''),
+                'activity_type': entry.get('activity_type'),
+                'why': entry.get('why'),
             })
         
         completed_items = len([i for i in items if i['status'] == 'completed'])
@@ -909,34 +911,272 @@ def parse_sprint_log(file_path: Path) -> dict | None:
             'decisions': frontmatter.get('decisions', []),
             'deviations': frontmatter.get('deviations', []),
             'block_reason': frontmatter.get('block_reason'),
+            'obsidian_path': str(file_path),
         }
     except Exception as e:
         logger.error(f"Failed to parse sprint log {file_path}: {e}")
         return None
 
 
+def save_sprint_to_db(sprint: dict) -> int | None:
+    """Save a sprint to the database. Returns sprint ID."""
+    if not DB_AVAILABLE:
+        return None
+    
+    try:
+        import psycopg2
+        conn = psycopg2.connect(dbname='nick', host='localhost')
+        cur = conn.cursor()
+        
+        qg = sprint.get('quality_gates', {})
+        
+        # Upsert sprint
+        cur.execute("""
+            INSERT INTO overnight_sprints (
+                sprint_date, task_id, task_title, status,
+                started_at, completed_at, window_start, window_end,
+                gate_tests_passing, gate_no_lint_errors, gate_docs_updated,
+                gate_committed, gate_self_validated, gate_happy_path,
+                gate_edge_cases, gate_pal_reviewed,
+                tasks_completed, tasks_total, gates_passed,
+                block_reason, obsidian_path, updated_at
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, NOW()
+            )
+            ON CONFLICT (sprint_date) DO UPDATE SET
+                task_id = EXCLUDED.task_id,
+                task_title = EXCLUDED.task_title,
+                status = EXCLUDED.status,
+                started_at = EXCLUDED.started_at,
+                completed_at = EXCLUDED.completed_at,
+                gate_tests_passing = EXCLUDED.gate_tests_passing,
+                gate_no_lint_errors = EXCLUDED.gate_no_lint_errors,
+                gate_docs_updated = EXCLUDED.gate_docs_updated,
+                gate_committed = EXCLUDED.gate_committed,
+                gate_self_validated = EXCLUDED.gate_self_validated,
+                gate_happy_path = EXCLUDED.gate_happy_path,
+                gate_edge_cases = EXCLUDED.gate_edge_cases,
+                gate_pal_reviewed = EXCLUDED.gate_pal_reviewed,
+                tasks_completed = EXCLUDED.tasks_completed,
+                tasks_total = EXCLUDED.tasks_total,
+                gates_passed = EXCLUDED.gates_passed,
+                block_reason = EXCLUDED.block_reason,
+                obsidian_path = EXCLUDED.obsidian_path,
+                updated_at = NOW()
+            RETURNING id
+        """, (
+            sprint['date'], sprint.get('task_id'), sprint.get('task_title'), sprint.get('status', 'pending'),
+            sprint.get('started_at'), sprint.get('completed_at'), sprint.get('started_at'), sprint.get('completed_at'),
+            qg.get('tests_passing', False), qg.get('no_lint_errors', False), qg.get('docs_updated', False),
+            qg.get('committed_to_branch', False), qg.get('self_validated', False), qg.get('happy_path_works', False),
+            qg.get('edge_cases_handled', False), qg.get('pal_reviewed', False),
+            sprint.get('tasks_completed', 0), sprint.get('tasks_total', 0), sprint.get('gates_passed', 0),
+            sprint.get('block_reason'), sprint.get('obsidian_path')
+        ))
+        
+        sprint_id = cur.fetchone()[0]
+        
+        # Delete existing related data for re-sync
+        cur.execute("DELETE FROM overnight_activity WHERE sprint_id = %s", (sprint_id,))
+        cur.execute("DELETE FROM overnight_decisions WHERE sprint_id = %s", (sprint_id,))
+        cur.execute("DELETE FROM overnight_deviations WHERE sprint_id = %s", (sprint_id,))
+        
+        # Insert activity items
+        for item in sprint.get('items', []):
+            cur.execute("""
+                INSERT INTO overnight_activity (sprint_id, activity_at, activity_type, what, why, outcome)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (
+                sprint_id,
+                item.get('started_at') or datetime.now(),
+                item.get('activity_type', 'progress'),
+                item.get('title', ''),
+                item.get('why'),
+                item.get('result')
+            ))
+        
+        # Insert decisions
+        for d in sprint.get('decisions', []):
+            if isinstance(d, dict):
+                cur.execute("""
+                    INSERT INTO overnight_decisions (sprint_id, decided_at, question, context, decision, rationale, confidence, pal_responses, consensus)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    sprint_id,
+                    d.get('timestamp') or datetime.now(),
+                    d.get('question', ''),
+                    d.get('context'),
+                    d.get('decision', ''),
+                    d.get('rationale'),
+                    d.get('confidence'),
+                    json.dumps(d.get('pal_responses', {})),
+                    d.get('consensus')
+                ))
+        
+        # Insert deviations
+        for d in sprint.get('deviations', []):
+            if isinstance(d, dict):
+                cur.execute("""
+                    INSERT INTO overnight_deviations (sprint_id, deviated_at, original_scope, deviation, reason, flagged)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    sprint_id,
+                    d.get('timestamp') or datetime.now(),
+                    d.get('original_scope'),
+                    d.get('deviation', ''),
+                    d.get('reason'),
+                    d.get('flagged', False)
+                ))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Saved sprint {sprint['date']} to database (id={sprint_id})")
+        return sprint_id
+        
+    except Exception as e:
+        logger.error(f"Failed to save sprint to DB: {e}")
+        return None
+
+
+def get_sprints_from_db(limit: int = 20) -> list:
+    """Get sprints from database with all related data."""
+    if not DB_AVAILABLE:
+        return []
+    
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        
+        conn = psycopg2.connect(dbname='nick', host='localhost', cursor_factory=RealDictCursor)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT id, sprint_date, task_id, task_title, status,
+                   started_at, completed_at,
+                   gate_tests_passing, gate_no_lint_errors, gate_docs_updated,
+                   gate_committed, gate_self_validated, gate_happy_path,
+                   gate_edge_cases, gate_pal_reviewed,
+                   tasks_completed, tasks_total, gates_passed,
+                   block_reason, obsidian_path
+            FROM overnight_sprints
+            ORDER BY sprint_date DESC
+            LIMIT %s
+        """, (limit,))
+        
+        rows = cur.fetchall()
+        sprints = []
+        
+        for row in rows:
+            sprint_id = row['id']
+            
+            # Get activity
+            cur.execute("""
+                SELECT activity_at, activity_type, what, why, outcome
+                FROM overnight_activity
+                WHERE sprint_id = %s
+                ORDER BY activity_at
+            """, (sprint_id,))
+            activities = cur.fetchall()
+            
+            items = []
+            for idx, a in enumerate(activities):
+                status = 'completed' if a['activity_type'] in ['complete', 'progress', 'start', 'decision'] else 'failed'
+                items.append({
+                    'id': f"{row['sprint_date']}-{idx}",
+                    'title': a['what'],
+                    'status': status,
+                    'started_at': str(a['activity_at']) if a['activity_at'] else None,
+                    'result': a['outcome'],
+                })
+            
+            # Get decisions
+            cur.execute("""
+                SELECT decided_at, question, context, decision, rationale, confidence, pal_responses, consensus
+                FROM overnight_decisions
+                WHERE sprint_id = %s
+                ORDER BY decided_at
+            """, (sprint_id,))
+            decisions = [dict(d) for d in cur.fetchall()]
+            
+            # Get deviations
+            cur.execute("""
+                SELECT deviated_at, original_scope, deviation, reason, flagged
+                FROM overnight_deviations
+                WHERE sprint_id = %s
+                ORDER BY deviated_at
+            """, (sprint_id,))
+            deviations = [dict(d) for d in cur.fetchall()]
+            
+            # Build quality gates dict
+            qg = {
+                'tests_passing': row['gate_tests_passing'],
+                'no_lint_errors': row['gate_no_lint_errors'],
+                'docs_updated': row['gate_docs_updated'],
+                'committed_to_branch': row['gate_committed'],
+                'self_validated': row['gate_self_validated'],
+                'happy_path_works': row['gate_happy_path'],
+                'edge_cases_handled': row['gate_edge_cases'],
+                'pal_reviewed': row['gate_pal_reviewed'],
+            }
+            
+            sprints.append({
+                'id': str(row['sprint_date']),
+                'date': str(row['sprint_date']),
+                'task_id': row['task_id'],
+                'task_title': row['task_title'],
+                'status': row['status'],
+                'started_at': str(row['started_at']) if row['started_at'] else None,
+                'completed_at': str(row['completed_at']) if row['completed_at'] else None,
+                'tasks_completed': row['tasks_completed'],
+                'tasks_total': row['tasks_total'],
+                'quality_gates': qg,
+                'gates_passed': row['gates_passed'],
+                'gates_total': 8,
+                'items': items,
+                'decisions': decisions,
+                'deviations': deviations,
+                'block_reason': row['block_reason'],
+            })
+        
+        conn.close()
+        return sprints
+        
+    except Exception as e:
+        logger.error(f"Failed to get sprints from DB: {e}")
+        return []
+
+
 @app.route('/api/overnight/current')
 def get_overnight_current():
     """Get current or most recent overnight sprint."""
     try:
+        # Try DB first
+        sprints = get_sprints_from_db(limit=1)
+        if sprints:
+            return jsonify({'sprint': sprints[0], 'source': 'database'})
+        
+        # Fallback to Obsidian
         if not SPRINT_LOGS_PATH.exists():
             return jsonify({'sprint': None})
         
-        # Try today first
         today = datetime.now().strftime('%Y-%m-%d')
         today_file = SPRINT_LOGS_PATH / f"{today}.md"
         
         if today_file.exists():
             sprint = parse_sprint_log(today_file)
             if sprint:
-                return jsonify({'sprint': sprint})
+                save_sprint_to_db(sprint)  # Auto-migrate to DB
+                return jsonify({'sprint': sprint, 'source': 'obsidian'})
         
-        # Get most recent
         md_files = sorted(SPRINT_LOGS_PATH.glob('*.md'), reverse=True)
         for f in md_files[:1]:
             sprint = parse_sprint_log(f)
             if sprint:
-                return jsonify({'sprint': sprint})
+                save_sprint_to_db(sprint)
+                return jsonify({'sprint': sprint, 'source': 'obsidian'})
         
         return jsonify({'sprint': None})
     
@@ -947,12 +1187,18 @@ def get_overnight_current():
 
 @app.route('/api/overnight/sprints')
 def get_overnight_sprints():
-    """Get list of recent sprint logs."""
+    """Get list of recent sprints. Prefers database, falls back to Obsidian."""
     try:
-        limit = request.args.get('limit', 10, type=int)
+        limit = request.args.get('limit', 20, type=int)
         
+        # Try DB first
+        sprints = get_sprints_from_db(limit=limit)
+        if sprints:
+            return jsonify({'sprints': sprints, 'source': 'database', 'count': len(sprints)})
+        
+        # Fallback to Obsidian
         if not SPRINT_LOGS_PATH.exists():
-            return jsonify({'sprints': []})
+            return jsonify({'sprints': [], 'source': 'none'})
         
         md_files = sorted(SPRINT_LOGS_PATH.glob('*.md'), reverse=True)[:limit]
         sprints = []
@@ -962,10 +1208,45 @@ def get_overnight_sprints():
             if sprint:
                 sprints.append(sprint)
         
-        return jsonify({'sprints': sprints})
+        return jsonify({'sprints': sprints, 'source': 'obsidian', 'count': len(sprints)})
     
     except Exception as e:
         logger.error(f"Overnight sprints error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/overnight/sync', methods=['POST'])
+def sync_overnight_sprints():
+    """Sync all Obsidian sprint logs to database."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    try:
+        if not SPRINT_LOGS_PATH.exists():
+            return jsonify({'error': 'Sprint logs path not found', 'path': str(SPRINT_LOGS_PATH)}), 404
+        
+        md_files = sorted(SPRINT_LOGS_PATH.glob('*.md'))
+        synced = 0
+        errors = []
+        
+        for f in md_files:
+            sprint = parse_sprint_log(f)
+            if sprint:
+                result = save_sprint_to_db(sprint)
+                if result:
+                    synced += 1
+                else:
+                    errors.append(f.name)
+        
+        return jsonify({
+            'status': 'ok',
+            'synced': synced,
+            'total_files': len(md_files),
+            'errors': errors
+        })
+    
+    except Exception as e:
+        logger.error(f"Overnight sync error: {e}")
         return jsonify({'error': str(e)}), 500
 
 
