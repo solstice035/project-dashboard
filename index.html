@@ -1478,33 +1478,50 @@
             }
         }
 
+        let gatewayHeartbeat = null;
+
         function connectGateway() {
             // Connect with token in URL (Clawdbot Gateway protocol)
             const wsUrl = `ws://localhost:18789?token=${encodeURIComponent(gatewayToken)}`;
             planSocket = new WebSocket(wsUrl);
-            
+
             planSocket.onopen = () => {
                 console.log('Gateway WebSocket connected');
                 addChatMessage('system', '🔌 Connected to Jeeves');
+
+                // Start heartbeat to keep connection alive
+                if (gatewayHeartbeat) clearInterval(gatewayHeartbeat);
+                gatewayHeartbeat = setInterval(() => {
+                    if (planSocket && planSocket.readyState === WebSocket.OPEN) {
+                        planSocket.send(JSON.stringify({ type: 'ping' }));
+                    }
+                }, 5000); // Ping every 5 seconds
             };
-            
+
             planSocket.onmessage = (event) => {
                 try {
                     const msg = JSON.parse(event.data);
+                    // Ignore pong responses
+                    if (msg.type === 'pong') return;
                     console.log('Gateway message:', msg);
                     handleGatewayMessage(msg);
                 } catch (e) {
                     console.error('Gateway message parse error:', e);
                 }
             };
-            
+
             planSocket.onerror = (error) => {
                 console.error('Gateway WebSocket error:', error);
                 addChatMessage('system', '⚠️ Gateway connection error - check if Clawdbot is running');
             };
-            
+
             planSocket.onclose = (event) => {
                 console.log('Gateway WebSocket closed:', event.code, event.reason);
+                // Stop heartbeat
+                if (gatewayHeartbeat) {
+                    clearInterval(gatewayHeartbeat);
+                    gatewayHeartbeat = null;
+                }
                 if (planSessionId) {
                     addChatMessage('system', '🔌 Disconnected from Jeeves');
                 }
