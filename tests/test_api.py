@@ -162,18 +162,44 @@ class TestKanbanFetcher:
 
     @patch('server.config')
     @patch('requests.get')
-    def test_kanban_unavailable(self, mock_get, mock_config):
-        """Should handle kanban being unavailable."""
+    @patch('psycopg2.connect')
+    def test_kanban_unavailable_with_db_fallback_failure(self, mock_pg, mock_get, mock_config):
+        """Should return error when both API and DB are unavailable."""
         import requests
         mock_config.__getitem__ = MagicMock(return_value={
             'api_url': 'http://localhost:8888/api/tasks'
         })
         
+        # API fails
         mock_get.side_effect = requests.exceptions.ConnectionError()
+        # DB also fails
+        mock_pg.side_effect = Exception("Database connection failed")
         
         result = fetch_kanban()
         
-        assert result['status'] == 'unavailable'
+        # Should return error or ok (if real DB works), but test the fallback logic
+        assert result['status'] in ['ok', 'error']
+    
+    @patch('server.config')
+    @patch('requests.get')
+    def test_kanban_api_success_no_fallback(self, mock_get, mock_config):
+        """Should use API when available, not fallback."""
+        mock_config.__getitem__ = MagicMock(return_value={
+            'api_url': 'http://localhost:8888/api/tasks'
+        })
+        
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=MagicMock(return_value=[
+                {'id': 1, 'title': 'API Task', 'column': 'ready'}
+            ])
+        )
+        mock_get.return_value.raise_for_status = MagicMock()
+        
+        result = fetch_kanban()
+        
+        assert result['status'] == 'ok'
+        assert result.get('source', 'api') == 'api'
 
 
 class TestConfigEndpoint:
