@@ -850,6 +850,126 @@ def get_planning_analytics():
 
 
 # =============================================================================
+# Overnight Sprint
+# =============================================================================
+
+SPRINT_LOGS_PATH = Path(os.path.expanduser(
+    '~/obsidian/claude/1-Projects/0-Dev/01-JeeveSprints'
+))
+
+
+def parse_sprint_log(file_path: Path) -> dict | None:
+    """Parse a sprint log markdown file with YAML frontmatter."""
+    try:
+        content = file_path.read_text()
+        if not content.startswith('---\n'):
+            return None
+        
+        parts = content.split('---\n', 2)
+        if len(parts) < 3:
+            return None
+        
+        frontmatter = yaml.safe_load(parts[1])
+        file_name = file_path.stem
+        
+        # Map activity log to items
+        items = []
+        for idx, entry in enumerate(frontmatter.get('activity_log', [])):
+            status = 'completed' if entry.get('activity_type') in ['complete', 'progress', 'start', 'decision'] else 'failed'
+            items.append({
+                'id': f"{file_name}-{idx}",
+                'title': entry.get('what', ''),
+                'status': status,
+                'started_at': str(entry.get('timestamp')) if entry.get('timestamp') else None,
+                'result': entry.get('outcome', ''),
+            })
+        
+        completed_items = len([i for i in items if i['status'] == 'completed'])
+        
+        # Quality gates
+        qg = frontmatter.get('quality_gates', {})
+        gates_passed = sum(1 for v in qg.values() if v is True)
+        
+        return {
+            'id': file_name,
+            'date': file_name,
+            'task_id': frontmatter.get('task_id'),
+            'task_title': frontmatter.get('task_title'),
+            'status': frontmatter.get('status', 'pending'),
+            'started_at': frontmatter.get('window_start'),
+            'completed_at': frontmatter.get('window_end'),
+            'tasks_completed': completed_items,
+            'tasks_total': len(items) or 1,
+            'summary': f"{frontmatter.get('task_title', 'Sprint')} - {frontmatter.get('status', 'pending')}",
+            'handoff_notes': None,
+            'items': items,
+            'quality_gates': qg,
+            'gates_passed': gates_passed,
+            'gates_total': 8,
+            'decisions': frontmatter.get('decisions', []),
+            'deviations': frontmatter.get('deviations', []),
+            'block_reason': frontmatter.get('block_reason'),
+        }
+    except Exception as e:
+        logger.error(f"Failed to parse sprint log {file_path}: {e}")
+        return None
+
+
+@app.route('/api/overnight/current')
+def get_overnight_current():
+    """Get current or most recent overnight sprint."""
+    try:
+        if not SPRINT_LOGS_PATH.exists():
+            return jsonify({'sprint': None})
+        
+        # Try today first
+        today = datetime.now().strftime('%Y-%m-%d')
+        today_file = SPRINT_LOGS_PATH / f"{today}.md"
+        
+        if today_file.exists():
+            sprint = parse_sprint_log(today_file)
+            if sprint:
+                return jsonify({'sprint': sprint})
+        
+        # Get most recent
+        md_files = sorted(SPRINT_LOGS_PATH.glob('*.md'), reverse=True)
+        for f in md_files[:1]:
+            sprint = parse_sprint_log(f)
+            if sprint:
+                return jsonify({'sprint': sprint})
+        
+        return jsonify({'sprint': None})
+    
+    except Exception as e:
+        logger.error(f"Overnight current error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/overnight/sprints')
+def get_overnight_sprints():
+    """Get list of recent sprint logs."""
+    try:
+        limit = request.args.get('limit', 10, type=int)
+        
+        if not SPRINT_LOGS_PATH.exists():
+            return jsonify({'sprints': []})
+        
+        md_files = sorted(SPRINT_LOGS_PATH.glob('*.md'), reverse=True)[:limit]
+        sprints = []
+        
+        for f in md_files:
+            sprint = parse_sprint_log(f)
+            if sprint:
+                sprints.append(sprint)
+        
+        return jsonify({'sprints': sprints})
+    
+    except Exception as e:
+        logger.error(f"Overnight sprints error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
