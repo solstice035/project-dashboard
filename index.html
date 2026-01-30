@@ -575,6 +575,17 @@
         let kanbanChart = null;
         let linearChart = null;
 
+        // XSS Prevention: Escape HTML in user-generated content
+        function escapeHtml(unsafe) {
+            if (typeof unsafe !== 'string') return unsafe;
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
         function switchTab(tabId) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -832,7 +843,7 @@
             content.innerHTML = data.tasks.slice(0, 8).map(task => {
                 const cls = task.is_overdue ? 'item overdue' : task.is_today ? 'item today' : 'item';
                 const icon = task.priority === 4 ? '🔴' : task.priority === 3 ? '🟠' : task.priority === 2 ? '🟡' : '';
-                return `<div class="${cls}"><div class="item-title">${icon} ${task.content}</div><div class="item-meta"><span class="tag">${task.project}</span>${task.due_date || ''}</div></div>`;
+                return `<div class="${cls}"><div class="item-title">${icon} ${escapeHtml(task.content)}</div><div class="item-meta"><span class="tag">${escapeHtml(task.project)}</span>${task.due_date || ''}</div></div>`;
             }).join('');
         }
 
@@ -864,11 +875,11 @@
             let html = '';
             if (inProgress.length) {
                 html += '<div style="color:var(--accent-cyan);font-size:0.8rem;margin-bottom:0.5rem;">In Progress</div>';
-                html += inProgress.map(t => `<div class="item in-progress"><div class="item-title">${t.title}</div></div>`).join('');
+                html += inProgress.map(t => `<div class="item in-progress"><div class="item-title">${escapeHtml(t.title)}</div></div>`).join('');
             }
             if (ready.length) {
                 html += '<div style="color:var(--text-muted);font-size:0.8rem;margin:0.75rem 0 0.5rem;">Ready</div>';
-                html += ready.slice(0, 3).map(t => `<div class="item"><div class="item-title">${t.title}</div></div>`).join('');
+                html += ready.slice(0, 3).map(t => `<div class="item"><div class="item-title">${escapeHtml(t.title)}</div></div>`).join('');
             }
             content.innerHTML = html;
         }
@@ -906,10 +917,10 @@
                 
                 return `
                     <div class="${cls}">
-                        <div class="item-title">${priorityIcon} ${issue.identifier} ${issue.title}</div>
+                        <div class="item-title">${priorityIcon} ${escapeHtml(issue.identifier)} ${escapeHtml(issue.title)}</div>
                         <div class="item-meta">
-                            <span class="tag">${issue.state}</span>
-                            ${issue.project ? `<span class="tag">${issue.project}</span>` : ''}
+                            <span class="tag">${escapeHtml(issue.state)}</span>
+                            ${issue.project ? `<span class="tag">${escapeHtml(issue.project)}</span>` : ''}
                         </div>
                     </div>
                 `;
@@ -959,9 +970,9 @@
                 
                 return `
                     <div class="${cls}">
-                        <div class="item-title">${icon} ${task.content}</div>
+                        <div class="item-title">${icon} ${escapeHtml(task.content)}</div>
                         <div class="item-meta">
-                            <span class="tag">${task.project}</span>
+                            <span class="tag">${escapeHtml(task.project)}</span>
                             ${task.due_date ? `Due: ${task.due_date}` : 'No due date'}
                         </div>
                     </div>
@@ -998,9 +1009,9 @@
                     const priorityIcon = issue.priority === 1 ? '🔴' : issue.priority === 2 ? '🟠' : issue.priority === 3 ? '🟡' : '';
                     return `
                         <div class="item">
-                            <div class="item-title">${priorityIcon} ${issue.identifier} ${issue.title}</div>
+                            <div class="item-title">${priorityIcon} ${escapeHtml(issue.identifier)} ${escapeHtml(issue.title)}</div>
                             <div class="item-meta">
-                                ${issue.project ? `<span class="tag">${issue.project}</span>` : ''}
+                                ${issue.project ? `<span class="tag">${escapeHtml(issue.project)}</span>` : ''}
                                 ${issue.due_date ? `Due: ${issue.due_date}` : ''}
                             </div>
                         </div>
@@ -1074,8 +1085,8 @@
             if (data.tasks.overdue.length) {
                 document.getElementById('standup-overdue').innerHTML = data.tasks.overdue.map(t => `
                     <div class="context-item overdue">
-                        <div>${t.content}</div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted);">${t.project} · ${t.due_date}</div>
+                        <div>${escapeHtml(t.content)}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(t.project)} · ${t.due_date}</div>
                     </div>
                 `).join('');
             } else {
@@ -1089,8 +1100,8 @@
                     const icon = t.priority === 4 ? '🔴' : t.priority === 3 ? '🟠' : t.priority === 2 ? '🟡' : '⚪';
                     return `
                         <div class="context-item today">
-                            <div>${icon} ${t.content}</div>
-                            <div style="font-size: 0.75rem; color: var(--text-muted);">${t.project}</div>
+                            <div>${icon} ${escapeHtml(t.content)}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(t.project)}</div>
                         </div>
                     `;
                 }).join('');
@@ -1103,8 +1114,8 @@
             if (data.kanban.in_progress.length) {
                 document.getElementById('standup-inprogress').innerHTML = data.kanban.in_progress.map(t => `
                     <div class="context-item in-progress">
-                        <div>${t.title}</div>
-                        ${t.tags?.length ? `<div style="font-size: 0.75rem; color: var(--text-muted);">${t.tags.join(', ')}</div>` : ''}
+                        <div>${escapeHtml(t.title)}</div>
+                        ${t.tags?.length ? `<div style="font-size: 0.75rem; color: var(--text-muted);">${t.tags.map(tag => escapeHtml(tag)).join(', ')}</div>` : ''}
                     </div>
                 `).join('');
             } else {
@@ -1139,7 +1150,7 @@
             if (data.tasks.overdue.length) {
                 html += `<div class="context-section">
                     <div class="context-section-title">⚠️ Overdue (${data.tasks.overdue.length})</div>
-                    ${data.tasks.overdue.slice(0, 5).map(t => `<div class="context-item overdue">${t.content}</div>`).join('')}
+                    ${data.tasks.overdue.slice(0, 5).map(t => `<div class="context-item overdue">${escapeHtml(t.content)}</div>`).join('')}
                 </div>`;
             }
             
@@ -1149,7 +1160,7 @@
                     <div class="context-section-title">📅 Today (${data.tasks.today.length})</div>
                     ${data.tasks.today.slice(0, 8).map(t => {
                         const icon = t.priority === 4 ? '🔴' : t.priority === 3 ? '🟠' : t.priority === 2 ? '🟡' : '⚪';
-                        return `<div class="context-item today">${icon} ${t.content}</div>`;
+                        return `<div class="context-item today">${icon} ${escapeHtml(t.content)}</div>`;
                     }).join('')}
                 </div>`;
             }
@@ -1158,7 +1169,7 @@
             if (data.kanban.in_progress.length) {
                 html += `<div class="context-section">
                     <div class="context-section-title">🚀 In Progress (${data.kanban.in_progress.length})</div>
-                    ${data.kanban.in_progress.map(t => `<div class="context-item in-progress">${t.title}</div>`).join('')}
+                    ${data.kanban.in_progress.map(t => `<div class="context-item in-progress">${escapeHtml(t.title)}</div>`).join('')}
                 </div>`;
             }
             
@@ -1166,7 +1177,7 @@
             if (data.kanban.ready.length) {
                 html += `<div class="context-section">
                     <div class="context-section-title">✅ Ready (${data.kanban.ready.length})</div>
-                    ${data.kanban.ready.slice(0, 5).map(t => `<div class="context-item">${t.title}</div>`).join('')}
+                    ${data.kanban.ready.slice(0, 5).map(t => `<div class="context-item">${escapeHtml(t.title)}</div>`).join('')}
                 </div>`;
             }
             
