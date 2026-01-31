@@ -1306,6 +1306,243 @@ def get_life_goals():
 
 
 # =============================================================================
+# Health Analytics Integration
+# =============================================================================
+
+HEALTH_DATA_PATH = '/Users/nick/clawd/projects/health-analytics/dashboard/data'
+
+@app.route('/api/integrations/health')
+def get_health_data():
+    """Get health data from the Health Analytics app."""
+    import os
+    
+    try:
+        data = {}
+        
+        # Health score
+        score_path = os.path.join(HEALTH_DATA_PATH, 'health_score.json')
+        if os.path.exists(score_path):
+            with open(score_path) as f:
+                data['health_score'] = json.load(f)
+        
+        # Goals progress
+        goals_path = os.path.join(HEALTH_DATA_PATH, 'goals_progress.json')
+        if os.path.exists(goals_path):
+            with open(goals_path) as f:
+                data['goals'] = json.load(f)
+        
+        # Summary stats
+        stats_path = os.path.join(HEALTH_DATA_PATH, 'summary_stats.json')
+        if os.path.exists(stats_path):
+            with open(stats_path) as f:
+                data['stats'] = json.load(f)
+        
+        # Daily trends
+        trends_path = os.path.join(HEALTH_DATA_PATH, 'daily_trends.json')
+        if os.path.exists(trends_path):
+            with open(trends_path) as f:
+                data['trends'] = json.load(f)
+        
+        # Insights
+        insights_path = os.path.join(HEALTH_DATA_PATH, 'insights.json')
+        if os.path.exists(insights_path):
+            with open(insights_path) as f:
+                data['insights'] = json.load(f)
+        
+        return jsonify({
+            'status': 'ok',
+            'source': 'health-analytics',
+            'data': data
+        })
+        
+    except Exception as e:
+        logger.error(f"Health integration error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrations/health/award-xp', methods=['POST'])
+def award_health_xp():
+    """Award XP based on health goals achieved."""
+    import os
+    from datetime import date
+    
+    try:
+        # Load health data - use goals_progress for daily goal tracking
+        goals_path = os.path.join(HEALTH_DATA_PATH, 'goals_progress.json')
+        stats_path = os.path.join(HEALTH_DATA_PATH, 'summary_stats.json')
+        
+        if not os.path.exists(goals_path):
+            return jsonify({'error': 'Health data not available'}), 404
+        
+        with open(goals_path) as f:
+            goals = json.load(f)
+        
+        # Get most recent day's goals (last index)
+        steps_met = goals.get('steps_goal', [0])[-1] == 1
+        exercise_met = goals.get('exercise_goal', [0])[-1] == 1
+        stand_met = goals.get('stand_goal', [0])[-1] == 1
+        
+        xp_awarded = 0
+        goal_details = []
+        
+        # Award XP for goals met
+        if steps_met:
+            xp_awarded += 25
+            goal_details.append('steps_10k')
+        if exercise_met:
+            xp_awarded += 30
+            goal_details.append('exercise_30m')
+        if stand_met:
+            xp_awarded += 15
+            goal_details.append('stand_12h')
+        
+        achievements = []
+        
+        if xp_awarded > 0:
+            # Add to Health area
+            if DB_AVAILABLE:
+                import psycopg2
+                conn = psycopg2.connect(dbname='nick', host='localhost')
+                cur = conn.cursor()
+                today = date.today()
+                
+                cur.execute("""
+                    INSERT INTO life_xp (area_code, date, xp_earned, activities)
+                    VALUES ('health', %s, %s, %s::jsonb)
+                    ON CONFLICT (area_code, date) DO UPDATE SET
+                        xp_earned = life_xp.xp_earned + %s,
+                        activities = life_xp.activities || %s::jsonb
+                    RETURNING xp_earned
+                """, (
+                    today, xp_awarded,
+                    json.dumps([{'activity': 'health_goals', 'xp': xp_awarded}]),
+                    xp_awarded,
+                    json.dumps([{'activity': 'health_goals', 'xp': xp_awarded}])
+                ))
+                
+                # Update totals
+                cur.execute("""
+                    UPDATE life_totals SET total_xp = total_xp + %s WHERE area_code IN ('health', 'total')
+                """, (xp_awarded,))
+                
+                conn.commit()
+                conn.close()
+                
+                # Check achievements
+                achievements = check_achievements()
+        
+        return jsonify({
+            'status': 'ok',
+            'xp_awarded': xp_awarded,
+            'goals_met': goal_details,
+            'steps_met': steps_met,
+            'exercise_met': exercise_met,
+            'stand_met': stand_met,
+            'achievements': [{'code': a['code'], 'name': a['name']} for a in achievements]
+        })
+        
+    except Exception as e:
+        logger.error(f"Health XP award error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
+# Monzo Integration (Stubs)
+# =============================================================================
+
+MONZO_API_BASE = 'http://localhost/api/v1'  # Docker default
+
+@app.route('/api/integrations/monzo')
+def get_monzo_data():
+    """Get finance data from the Monzo Analysis app."""
+    import requests
+    
+    try:
+        # Try to get summary from Monzo API
+        resp = requests.get(f'{MONZO_API_BASE}/dashboard/summary', timeout=5)
+        if resp.status_code == 200:
+            return jsonify({
+                'status': 'ok',
+                'source': 'monzo-analysis',
+                'data': resp.json()
+            })
+        else:
+            return jsonify({
+                'status': 'unavailable',
+                'message': 'Monzo service not responding',
+                'code': resp.status_code
+            }), 503
+            
+    except requests.exceptions.ConnectionError:
+        return jsonify({
+            'status': 'offline',
+            'message': 'Monzo service not running. Start with: cd ~/clawd/projects/monzo-analysis && docker compose up -d'
+        }), 503
+    except Exception as e:
+        logger.error(f"Monzo integration error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrations/monzo/award-xp', methods=['POST'])
+def award_monzo_xp():
+    """Award XP based on finance goals (budget adherence)."""
+    import requests
+    
+    try:
+        # Get budget status from Monzo
+        resp = requests.get(f'{MONZO_API_BASE}/budgets/status', timeout=5)
+        if resp.status_code != 200:
+            return jsonify({'status': 'unavailable'}), 503
+        
+        budget_data = resp.json()
+        xp_awarded = 0
+        
+        # Award XP for staying under budget
+        under_budget_count = sum(1 for b in budget_data.get('budgets', []) if b.get('status') == 'under')
+        xp_awarded = under_budget_count * 10  # 10 XP per budget under control
+        
+        if xp_awarded > 0 and DB_AVAILABLE:
+            import psycopg2
+            from datetime import date
+            
+            conn = psycopg2.connect(dbname='nick', host='localhost')
+            cur = conn.cursor()
+            today = date.today()
+            
+            cur.execute("""
+                INSERT INTO life_xp (area_code, date, xp_earned, activities)
+                VALUES ('life_admin', %s, %s, %s::jsonb)
+                ON CONFLICT (area_code, date) DO UPDATE SET
+                    xp_earned = life_xp.xp_earned + %s,
+                    activities = life_xp.activities || %s::jsonb
+            """, (
+                today, xp_awarded,
+                json.dumps([{'activity': 'budget_control', 'xp': xp_awarded}]),
+                xp_awarded,
+                json.dumps([{'activity': 'budget_control', 'xp': xp_awarded}])
+            ))
+            
+            cur.execute("""
+                UPDATE life_totals SET total_xp = total_xp + %s WHERE area_code IN ('life_admin', 'total')
+            """, (xp_awarded,))
+            
+            conn.commit()
+            conn.close()
+        
+        return jsonify({
+            'status': 'ok',
+            'xp_awarded': xp_awarded,
+            'budgets_under': under_budget_count
+        })
+        
+    except requests.exceptions.ConnectionError:
+        return jsonify({'status': 'offline', 'message': 'Monzo service not running'}), 503
+    except Exception as e:
+        logger.error(f"Monzo XP award error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
 # Days Since API
 # =============================================================================
 
