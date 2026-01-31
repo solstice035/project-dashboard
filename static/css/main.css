@@ -2273,6 +2273,78 @@ kbd {
     animation: xp-pop 0.3s ease;
 }
 
+/* -----------------------------------------------------------------------------
+   Days Since
+   ----------------------------------------------------------------------------- */
+.days-since-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.days-since-item:hover {
+    background: var(--bg-tertiary);
+}
+
+.days-since-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}
+
+.days-since-info {
+    flex: 1;
+}
+
+.days-since-name {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+.days-since-value {
+    font-size: var(--font-size-lg);
+    font-weight: 700;
+    font-family: var(--font-mono);
+    min-width: 50px;
+    text-align: right;
+}
+
+.days-since-value.ok {
+    color: var(--success);
+}
+
+.days-since-value.warning {
+    color: var(--warning);
+}
+
+.days-since-value.alert {
+    color: var(--error);
+}
+
+.days-since-value.never {
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+}
+
+.days-since-item.alert {
+    background: rgba(239, 68, 68, 0.1);
+    border-left: 3px solid var(--error);
+}
+
+.days-since-item.warning {
+    background: rgba(245, 158, 11, 0.1);
+    border-left: 3px solid var(--warning);
+}
+
 @keyframes xp-float {
     0% {
         opacity: 0;

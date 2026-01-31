@@ -1179,6 +1179,144 @@ def get_life_goals():
 
 
 # =============================================================================
+# Days Since API
+# =============================================================================
+
+@app.route('/api/days-since')
+def get_days_since():
+    """Get all days-since events with calculated days."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        from datetime import date
+        
+        conn = psycopg2.connect(dbname='nick', host='localhost', cursor_factory=RealDictCursor)
+        cur = conn.cursor()
+        today = date.today()
+        
+        cur.execute("""
+            SELECT code, name, icon, category, warning_days, alert_days, 
+                   last_occurred, notes, sort_order
+            FROM days_since_events
+            ORDER BY sort_order, name
+        """)
+        
+        events = []
+        for row in cur.fetchall():
+            event = dict(row)
+            if event['last_occurred']:
+                days = (today - event['last_occurred']).days
+                event['days'] = days
+                if days >= event['alert_days']:
+                    event['status'] = 'alert'
+                elif days >= event['warning_days']:
+                    event['status'] = 'warning'
+                else:
+                    event['status'] = 'ok'
+            else:
+                event['days'] = None
+                event['status'] = 'never'
+            events.append(event)
+        
+        conn.close()
+        return jsonify({'events': events})
+        
+    except Exception as e:
+        logger.error(f"Days since error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/days-since/<code>/log', methods=['POST'])
+def log_days_since(code):
+    """Log an occurrence of a days-since event."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    data = request.get_json() or {}
+    occurred_date = data.get('date')  # Optional, defaults to today
+    notes = data.get('notes', '')
+    
+    try:
+        import psycopg2
+        from datetime import date, datetime
+        
+        conn = psycopg2.connect(dbname='nick', host='localhost')
+        cur = conn.cursor()
+        
+        if occurred_date:
+            occurred = datetime.strptime(occurred_date, '%Y-%m-%d').date()
+        else:
+            occurred = date.today()
+        
+        # Update last_occurred
+        cur.execute("""
+            UPDATE days_since_events 
+            SET last_occurred = %s, updated_at = NOW()
+            WHERE code = %s
+            RETURNING name
+        """, (occurred, code))
+        
+        result = cur.fetchone()
+        if not result:
+            return jsonify({'error': f'Event not found: {code}'}), 404
+        
+        event_name = result[0]
+        
+        # Add to history
+        cur.execute("""
+            INSERT INTO days_since_history (event_code, occurred_at, notes)
+            VALUES (%s, %s, %s)
+        """, (code, occurred, notes))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'status': 'ok',
+            'message': f'Logged {event_name}',
+            'date': str(occurred)
+        })
+        
+    except Exception as e:
+        logger.error(f"Log days since error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/days-since/<code>/history')
+def get_days_since_history(code):
+    """Get history for a specific days-since event."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        
+        conn = psycopg2.connect(dbname='nick', host='localhost', cursor_factory=RealDictCursor)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT occurred_at, notes, created_at
+            FROM days_since_history
+            WHERE event_code = %s
+            ORDER BY occurred_at DESC
+            LIMIT 20
+        """, (code,))
+        
+        history = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        
+        return jsonify({'history': history})
+        
+    except Exception as e:
+        logger.error(f"Days since history error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
 # Main
 # =============================================================================
 

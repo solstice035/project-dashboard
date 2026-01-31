@@ -406,3 +406,47 @@ INSERT INTO life_goals (area_code, metric, target_value, period) VALUES
     ('work', 'tasks_completed', 5, 'daily'),
     ('social', 'events_attended', 2, 'weekly')
 ON CONFLICT (area_code, metric, period) DO NOTHING;
+
+-- =============================================================================
+-- Days Since Tracking
+-- =============================================================================
+
+-- Track "days since" events
+CREATE TABLE IF NOT EXISTS days_since_events (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    icon VARCHAR(50) DEFAULT 'calendar',
+    category VARCHAR(50) DEFAULT 'personal',
+    warning_days INTEGER DEFAULT 7,
+    alert_days INTEGER DEFAULT 14,
+    last_occurred DATE,
+    notes TEXT,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- History of occurrences
+CREATE TABLE IF NOT EXISTS days_since_history (
+    id SERIAL PRIMARY KEY,
+    event_code VARCHAR(50) REFERENCES days_since_events(code) ON DELETE CASCADE,
+    occurred_at DATE NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Insert default "days since" events from Nick's list
+INSERT INTO days_since_events (code, name, icon, category, warning_days, alert_days, sort_order) VALUES
+    ('date_night', 'Date Night', 'heart', 'relationships', 14, 21, 1),
+    ('shave', 'Shave', 'scissors', 'self_care', 3, 5, 2),
+    ('haircut', 'Haircut', 'scissors', 'self_care', 28, 42, 3),
+    ('exercise', 'Exercise', 'dumbbell', 'health', 2, 4, 4),
+    ('family_trip', 'Family Trip', 'car', 'relationships', 30, 60, 5),
+    ('facetime_grandparents', 'FaceTime Granny & Grandpa', 'video', 'relationships', 7, 14, 6),
+    ('message_friends', 'Message Friends', 'message-circle', 'relationships', 7, 14, 7),
+    ('day_off', 'Day Off Work', 'coffee', 'self_care', 14, 21, 8)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE INDEX IF NOT EXISTS idx_days_since_history_event ON days_since_history(event_code);
+CREATE INDEX IF NOT EXISTS idx_days_since_history_date ON days_since_history(occurred_at DESC);

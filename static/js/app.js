@@ -1911,6 +1911,9 @@ async function loadLifeDashboard() {
         renderProgressRings();
         renderHeatmap();
         
+        // Also load days since
+        loadDaysSince();
+        
     } catch (e) {
         console.error('Life dashboard fetch error:', e);
     }
@@ -2261,6 +2264,75 @@ async function syncXpFromDashboard() {
     var lifeTab = document.getElementById('tab-life');
     if (lifeTab && lifeTab.classList.contains('active')) {
         loadLifeDashboard();
+    }
+}
+
+// =============================================================================
+// Days Since
+// =============================================================================
+
+let daysSinceData = null;
+
+/**
+ * Load days since data
+ */
+async function loadDaysSince() {
+    try {
+        const resp = await fetch('/api/days-since');
+        daysSinceData = await resp.json();
+        renderDaysSince();
+    } catch (e) {
+        console.error('Days since error:', e);
+    }
+}
+
+/**
+ * Render days since items
+ */
+function renderDaysSince() {
+    if (!daysSinceData || !daysSinceData.events) return;
+    
+    var container = document.getElementById('days-since-content');
+    if (!container) return;
+    
+    var html = '';
+    daysSinceData.events.forEach(function(event) {
+        var statusClass = event.status;
+        var daysText = event.days !== null ? event.days + 'd' : 'Never';
+        
+        html += '<div class="days-since-item ' + statusClass + '" onclick="logDaysSince(\'' + event.code + '\')">';
+        html += '<div class="days-since-icon"><i data-lucide="' + event.icon + '" class="icon"></i></div>';
+        html += '<div class="days-since-info">';
+        html += '<span class="days-since-name">' + escapeHtml(event.name) + '</span>';
+        html += '</div>';
+        html += '<span class="days-since-value ' + statusClass + '">' + daysText + '</span>';
+        html += '</div>';
+    });
+    
+    container.innerHTML = html;
+    refreshIcons();
+}
+
+/**
+ * Log a days-since event (mark as done today)
+ */
+async function logDaysSince(code) {
+    try {
+        var resp = await fetch('/api/days-since/' + code + '/log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        
+        var data = await resp.json();
+        
+        if (data.status === 'ok') {
+            // Show confirmation
+            showXpNotification(0, data.message);
+            loadDaysSince();
+        }
+    } catch (e) {
+        console.error('Log days since error:', e);
     }
 }
 
