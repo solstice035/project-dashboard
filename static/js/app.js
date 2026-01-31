@@ -232,6 +232,9 @@ function switchTab(tabId) {
         case 'command-center':
             loadStandup();
             break;
+        case 'life':
+            loadLifeDashboard();
+            break;
         case 'plan':
             loadPlanContext();
             loadStandup();
@@ -1874,6 +1877,382 @@ function completeTask(taskId) {
 function rescheduleTask(taskId) {
     console.log('Reschedule task:', taskId);
     // TODO: Implement Todoist API call
+}
+
+// =============================================================================
+// =============================================================================
+// Life Balance Tab
+// =============================================================================
+
+let lifeData = null;
+let lifeRadarChart = null;
+
+/**
+ * Load life dashboard data
+ */
+async function loadLifeDashboard() {
+    try {
+        const resp = await fetch('/api/life/dashboard');
+        lifeData = await resp.json();
+        
+        if (lifeData.error) {
+            console.error('Life dashboard error:', lifeData.error);
+            return;
+        }
+        
+        renderLifeHeader();
+        renderLifeAreas();
+        renderStreaks();
+        renderAchievements();
+        renderLifeRadar();
+        renderProgressRings();
+        renderHeatmap();
+        
+    } catch (e) {
+        console.error('Life dashboard fetch error:', e);
+    }
+}
+
+/**
+ * Render the XP header bar
+ */
+function renderLifeHeader() {
+    if (!lifeData) return;
+    
+    var levelEl = document.getElementById('life-level');
+    var titleEl = document.getElementById('life-title');
+    var xpEl = document.getElementById('life-xp');
+    var progressFill = document.getElementById('xp-progress-fill');
+    var progressText = document.getElementById('xp-progress-text');
+    var todayXp = document.getElementById('today-xp');
+    
+    if (levelEl) levelEl.textContent = 'Lv ' + lifeData.level;
+    if (titleEl) titleEl.textContent = lifeData.level_title;
+    if (xpEl) xpEl.textContent = lifeData.total_xp.toLocaleString() + ' XP';
+    if (progressFill) progressFill.style.width = lifeData.level_progress + '%';
+    if (progressText) progressText.textContent = lifeData.xp_to_next.toLocaleString() + ' XP to next level';
+    if (todayXp) todayXp.textContent = '+' + lifeData.today_xp;
+}
+
+/**
+ * Render life area cards
+ */
+function renderLifeAreas() {
+    if (!lifeData || !lifeData.areas) return;
+    
+    var container = document.getElementById('life-areas-grid');
+    if (!container) return;
+    
+    var html = '';
+    lifeData.areas.forEach(function(area) {
+        var weeklyXp = lifeData.weekly_xp[area.code] || 0;
+        var progress = Math.min(100, (area.today_xp / area.daily_xp_cap) * 100);
+        
+        html += '<div class="life-area-card" onclick="showAreaDetails(\'' + area.code + '\')">';
+        html += '<div class="life-area-header">';
+        html += '<div class="life-area-icon" style="background: ' + area.color + '20; color: ' + area.color + ';">';
+        html += icon(area.icon);
+        html += '</div>';
+        html += '<span class="life-area-name">' + escapeHtml(area.name) + '</span>';
+        html += '<span class="life-area-xp">Lv ' + area.level + '</span>';
+        html += '</div>';
+        html += '<div class="life-area-progress">';
+        html += '<div class="life-area-progress-fill" style="width: ' + progress + '%; background: ' + area.color + ';"></div>';
+        html += '</div>';
+        html += '<div class="life-area-stats">';
+        html += '<span>Today: ' + area.today_xp + '/' + area.daily_xp_cap + '</span>';
+        html += '<span>Week: ' + weeklyXp + '</span>';
+        html += '</div>';
+        html += '</div>';
+    });
+    
+    container.innerHTML = html;
+    refreshIcons();
+}
+
+/**
+ * Render streaks
+ */
+function renderStreaks() {
+    if (!lifeData || !lifeData.streaks) return;
+    
+    var container = document.getElementById('streaks-content');
+    if (!container) return;
+    
+    if (lifeData.streaks.length === 0) {
+        container.innerHTML = '<div class="empty-state-mini">No streaks yet</div>';
+        return;
+    }
+    
+    var html = '';
+    lifeData.streaks.forEach(function(streak) {
+        var isActive = streak.current_streak > 0;
+        html += '<div class="streak-item">';
+        html += '<div class="streak-info">';
+        html += '<span class="streak-icon' + (isActive ? ' active' : '') + '">' + icon('flame') + '</span>';
+        html += '<span class="streak-name">' + escapeHtml(streak.activity.replace(/_/g, ' ')) + '</span>';
+        html += '</div>';
+        html += '<span class="streak-count' + (streak.current_streak === 0 ? ' zero' : '') + '">' + streak.current_streak + '</span>';
+        html += '</div>';
+    });
+    
+    container.innerHTML = html;
+    refreshIcons();
+}
+
+/**
+ * Render recent achievements
+ */
+function renderAchievements() {
+    if (!lifeData || !lifeData.achievements) return;
+    
+    var container = document.getElementById('achievements-content');
+    if (!container) return;
+    
+    if (lifeData.achievements.length === 0) {
+        container.innerHTML = '<div class="empty-state-mini">No achievements earned yet. Keep going!</div>';
+        return;
+    }
+    
+    var html = '';
+    lifeData.achievements.forEach(function(ach) {
+        html += '<div class="achievement-item">';
+        html += '<div class="achievement-icon ' + ach.rarity + '">' + icon(ach.icon || 'star') + '</div>';
+        html += '<div class="achievement-info">';
+        html += '<div class="achievement-name">' + escapeHtml(ach.name) + '</div>';
+        html += '<div class="achievement-desc">' + escapeHtml(ach.description) + '</div>';
+        html += '</div>';
+        html += '<span class="achievement-xp">+' + ach.xp_reward + '</span>';
+        html += '</div>';
+    });
+    
+    container.innerHTML = html;
+    refreshIcons();
+}
+
+/**
+ * Render life balance radar chart
+ */
+function renderLifeRadar() {
+    if (!lifeData || !lifeData.areas) return;
+    
+    var canvas = document.getElementById('life-radar-chart');
+    if (!canvas) return;
+    
+    var labels = lifeData.areas.map(function(a) { return a.name; });
+    var values = lifeData.areas.map(function(a) {
+        var weekly = lifeData.weekly_xp[a.code] || 0;
+        var maxWeekly = a.daily_xp_cap * 7;
+        return Math.min(100, (weekly / maxWeekly) * 100);
+    });
+    var colors = lifeData.areas.map(function(a) { return a.color; });
+    
+    if (lifeRadarChart) {
+        lifeRadarChart.destroy();
+    }
+    
+    lifeRadarChart = new Chart(canvas, {
+        type: 'radar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'This Week',
+                data: values,
+                backgroundColor: 'rgba(56, 178, 172, 0.2)',
+                borderColor: 'rgba(56, 178, 172, 1)',
+                borderWidth: 2,
+                pointBackgroundColor: 'rgba(56, 178, 172, 1)',
+                pointBorderColor: '#fff',
+                pointRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                r: {
+                    beginAtZero: true,
+                    max: 100,
+                    ticks: {
+                        display: false
+                    },
+                    grid: {
+                        color: 'rgba(255,255,255,0.1)'
+                    },
+                    angleLines: {
+                        color: 'rgba(255,255,255,0.1)'
+                    },
+                    pointLabels: {
+                        color: '#a0aec0',
+                        font: { size: 11 }
+                    }
+                }
+            },
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
+}
+
+/**
+ * Render progress rings (Canvas-based)
+ */
+function renderProgressRings() {
+    if (!lifeData || !lifeData.areas) return;
+    
+    var canvas = document.getElementById('rings-canvas');
+    var legend = document.getElementById('rings-legend');
+    if (!canvas || !legend) return;
+    
+    var ctx = canvas.getContext('2d');
+    var centerX = canvas.width / 2;
+    var centerY = canvas.height / 2;
+    var maxRadius = 90;
+    var ringWidth = 12;
+    var ringGap = 4;
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw rings for top 4 areas (by today's activity)
+    var topAreas = lifeData.areas.slice(0, 4);
+    var legendHtml = '';
+    
+    topAreas.forEach(function(area, i) {
+        var radius = maxRadius - (i * (ringWidth + ringGap));
+        var progress = Math.min(1, area.today_xp / area.daily_xp_cap);
+        
+        // Background ring
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+        ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+        ctx.lineWidth = ringWidth;
+        ctx.stroke();
+        
+        // Progress ring
+        if (progress > 0) {
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, -Math.PI / 2, -Math.PI / 2 + (2 * Math.PI * progress));
+            ctx.strokeStyle = area.color;
+            ctx.lineWidth = ringWidth;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+        }
+        
+        legendHtml += '<div class="ring-legend-item">';
+        legendHtml += '<span class="ring-legend-dot" style="background: ' + area.color + ';"></span>';
+        legendHtml += '<span>' + escapeHtml(area.name) + '</span>';
+        legendHtml += '<span class="ring-legend-value">' + Math.round(progress * 100) + '%</span>';
+        legendHtml += '</div>';
+    });
+    
+    legend.innerHTML = legendHtml;
+}
+
+/**
+ * Render activity heatmap
+ */
+function renderHeatmap() {
+    if (!lifeData || !lifeData.heatmap) return;
+    
+    var container = document.getElementById('activity-heatmap');
+    if (!container) return;
+    
+    // Create 12 weeks of data
+    var today = new Date();
+    var startDate = new Date(today);
+    startDate.setDate(startDate.getDate() - 83); // 12 weeks back
+    
+    // Build XP lookup
+    var xpByDate = {};
+    lifeData.heatmap.forEach(function(d) {
+        xpByDate[d.date] = d.xp;
+    });
+    
+    // Find max XP for scaling
+    var maxXp = Math.max.apply(null, lifeData.heatmap.map(function(d) { return d.xp; })) || 100;
+    
+    var html = '<div class="heatmap-grid">';
+    var currentDate = new Date(startDate);
+    
+    for (var week = 0; week < 12; week++) {
+        html += '<div class="heatmap-week">';
+        for (var day = 0; day < 7; day++) {
+            var dateStr = currentDate.toISOString().split('T')[0];
+            var xp = xpByDate[dateStr] || 0;
+            var level = 0;
+            if (xp > 0) level = Math.min(5, Math.ceil((xp / maxXp) * 5));
+            
+            html += '<div class="heatmap-day level-' + level + '" title="' + dateStr + ': ' + xp + ' XP"></div>';
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+        html += '</div>';
+    }
+    html += '</div>';
+    
+    html += '<div class="heatmap-labels">';
+    html += '<span>Less</span>';
+    html += '<div style="display: flex; gap: 2px;">';
+    for (var l = 0; l <= 5; l++) {
+        html += '<div class="heatmap-day level-' + l + '" style="width: 10px; height: 10px;"></div>';
+    }
+    html += '</div>';
+    html += '<span>More</span>';
+    html += '</div>';
+    
+    container.innerHTML = html;
+}
+
+/**
+ * Show area details modal
+ */
+function showAreaDetails(areaCode) {
+    var area = lifeData.areas.find(function(a) { return a.code === areaCode; });
+    if (!area) return;
+    
+    var content = '<div style="text-align: center; padding: 1rem;">';
+    content += '<div style="font-size: 3rem; margin-bottom: 1rem;">' + icon(area.icon) + '</div>';
+    content += '<h2 style="margin-bottom: 0.5rem;">' + escapeHtml(area.name) + '</h2>';
+    content += '<p style="color: var(--text-muted);">Level ' + area.level + ' • ' + area.total_xp + ' Total XP</p>';
+    content += '<div style="margin: 1.5rem 0;">';
+    content += '<div style="font-size: 2rem; font-weight: 700; color: var(--accent);">' + area.today_xp + '/' + area.daily_xp_cap + '</div>';
+    content += '<div style="color: var(--text-muted);">Today\'s XP</div>';
+    content += '</div>';
+    content += '</div>';
+    
+    openModal(area.name + ' Details', content, area.icon);
+}
+
+/**
+ * Show all achievements
+ */
+async function showAllAchievements() {
+    try {
+        const resp = await fetch('/api/life/achievements');
+        const data = await resp.json();
+        
+        if (!data.achievements) return;
+        
+        var content = '<div style="max-height: 400px; overflow-y: auto;">';
+        data.achievements.forEach(function(ach) {
+            var earned = ach.earned;
+            content += '<div class="achievement-item" style="opacity: ' + (earned ? '1' : '0.5') + ';">';
+            content += '<div class="achievement-icon ' + ach.rarity + '">' + icon(ach.icon || 'star') + '</div>';
+            content += '<div class="achievement-info">';
+            content += '<div class="achievement-name">' + escapeHtml(ach.name) + (earned ? ' ✓' : '') + '</div>';
+            content += '<div class="achievement-desc">' + escapeHtml(ach.description) + '</div>';
+            content += '</div>';
+            content += '<span class="achievement-xp">+' + ach.xp_reward + '</span>';
+            content += '</div>';
+        });
+        content += '</div>';
+        
+        openModal('All Achievements', content, 'trophy');
+        refreshIcons();
+        
+    } catch (e) {
+        console.error('Achievements error:', e);
+    }
 }
 
 // =============================================================================

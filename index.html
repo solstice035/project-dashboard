@@ -23,6 +23,9 @@
                 <button class="tab active" data-tab="command-center">
                     <i data-lucide="layout-dashboard" class="icon"></i> Command
                 </button>
+                <button class="tab" data-tab="life">
+                    <i data-lucide="heart" class="icon"></i> Life
+                </button>
                 <button class="tab" data-tab="plan">
                     <i data-lucide="message-square" class="icon"></i> Plan
                 </button>
@@ -195,6 +198,104 @@
                         <span class="card-badge" id="linear-count">-</span>
                     </div>
                     <div class="card-content" id="linear-content"><div class="skeleton"></div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Life Balance Tab -->
+        <div id="tab-life" class="tab-content">
+            <!-- XP Header Bar -->
+            <div class="life-header">
+                <div class="life-level">
+                    <span class="level-badge" id="life-level">Lv 1</span>
+                    <div class="level-info">
+                        <span class="level-title" id="life-title">Novice</span>
+                        <span class="level-xp" id="life-xp">0 XP</span>
+                    </div>
+                </div>
+                <div class="xp-progress-container">
+                    <div class="xp-progress-bar">
+                        <div class="xp-progress-fill" id="xp-progress-fill" style="width: 0%"></div>
+                    </div>
+                    <span class="xp-progress-text" id="xp-progress-text">0 / 100 XP to next level</span>
+                </div>
+                <div class="today-xp">
+                    <span class="today-xp-value" id="today-xp">+0</span>
+                    <span class="today-xp-label">Today</span>
+                </div>
+            </div>
+
+            <div class="life-grid">
+                <!-- Progress Rings Card -->
+                <div class="card life-card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="circle-dot" class="icon"></i> Today's Progress</span>
+                    </div>
+                    <div class="card-content">
+                        <div class="progress-rings-container" id="progress-rings">
+                            <canvas id="rings-canvas" width="200" height="200"></canvas>
+                            <div class="rings-legend" id="rings-legend"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Life Balance Radar -->
+                <div class="card life-card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="radar" class="icon"></i> Life Balance</span>
+                        <span class="card-badge">This Week</span>
+                    </div>
+                    <div class="card-content">
+                        <div class="radar-container">
+                            <canvas id="life-radar-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Area Cards Grid -->
+                <div class="card full-width life-card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="layout-grid" class="icon"></i> Life Areas</span>
+                    </div>
+                    <div class="card-content">
+                        <div class="life-areas-grid" id="life-areas-grid">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Streaks -->
+                <div class="card life-card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="flame" class="icon"></i> Streaks</span>
+                    </div>
+                    <div class="card-content" id="streaks-content">
+                        <div class="skeleton"></div>
+                    </div>
+                </div>
+
+                <!-- Recent Achievements -->
+                <div class="card life-card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="trophy" class="icon"></i> Achievements</span>
+                        <button class="btn-ghost" onclick="showAllAchievements()">View All</button>
+                    </div>
+                    <div class="card-content" id="achievements-content">
+                        <div class="skeleton"></div>
+                    </div>
+                </div>
+
+                <!-- Activity Heat Map -->
+                <div class="card full-width life-card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="calendar-days" class="icon"></i> Activity Heat Map</span>
+                        <span class="card-badge">Last 12 weeks</span>
+                    </div>
+                    <div class="card-content">
+                        <div class="heatmap-container" id="activity-heatmap">
+                            <!-- GitHub-style heatmap -->
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

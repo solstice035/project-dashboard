@@ -1809,3 +1809,375 @@ body {
     color: var(--text-muted);
     font-size: var(--font-size-sm);
 }
+
+/* -----------------------------------------------------------------------------
+   Life Balance Tab
+   ----------------------------------------------------------------------------- */
+
+/* XP Header */
+.life-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-lg);
+    background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+.life-level {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.level-badge {
+    background: linear-gradient(135deg, var(--accent) 0%, #8b5cf6 100%);
+    color: white;
+    font-weight: 700;
+    font-size: 1.25rem;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-md);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.level-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.level-title {
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+.level-xp {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+}
+
+.xp-progress-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.xp-progress-bar {
+    height: 12px;
+    background: var(--bg-primary);
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+.xp-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent) 0%, #8b5cf6 100%);
+    border-radius: 6px;
+    transition: width 0.5s ease;
+}
+
+.xp-progress-text {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.today-xp {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--spacing-md);
+    background: var(--bg-primary);
+    border-radius: var(--radius-md);
+    min-width: 80px;
+}
+
+.today-xp-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--color-success);
+}
+
+.today-xp-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+}
+
+/* Life Grid */
+.life-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-lg);
+}
+
+@media (max-width: 1024px) {
+    .life-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.life-card {
+    min-height: auto;
+}
+
+/* Progress Rings */
+.progress-rings-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-lg);
+    padding: var(--spacing-md);
+}
+
+#rings-canvas {
+    max-width: 200px;
+}
+
+.rings-legend {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.ring-legend-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: var(--font-size-sm);
+}
+
+.ring-legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+.ring-legend-value {
+    margin-left: auto;
+    font-weight: 500;
+}
+
+/* Radar Chart */
+.radar-container {
+    height: 250px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Life Areas Grid */
+.life-areas-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--spacing-md);
+}
+
+@media (max-width: 1200px) {
+    .life-areas-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 600px) {
+    .life-areas-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.life-area-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.life-area-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+}
+
+.life-area-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+}
+
+.life-area-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+}
+
+.life-area-name {
+    font-weight: 600;
+    flex: 1;
+}
+
+.life-area-xp {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+}
+
+.life-area-progress {
+    height: 8px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: var(--spacing-sm);
+}
+
+.life-area-progress-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.life-area-stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+}
+
+/* Streaks */
+.streak-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-sm) 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.streak-item:last-child {
+    border-bottom: none;
+}
+
+.streak-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.streak-icon {
+    color: var(--color-warning);
+}
+
+.streak-icon.active {
+    color: #f97316;
+    animation: flame-pulse 1s infinite;
+}
+
+@keyframes flame-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+.streak-name {
+    font-weight: 500;
+}
+
+.streak-count {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.streak-count.zero {
+    color: var(--text-muted);
+}
+
+/* Achievements */
+.achievement-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.achievement-item:last-child {
+    border-bottom: none;
+}
+
+.achievement-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+}
+
+.achievement-icon.common { background: linear-gradient(135deg, #6b7280, #9ca3af); }
+.achievement-icon.uncommon { background: linear-gradient(135deg, #22c55e, #4ade80); }
+.achievement-icon.rare { background: linear-gradient(135deg, #3b82f6, #60a5fa); }
+.achievement-icon.epic { background: linear-gradient(135deg, #8b5cf6, #a78bfa); }
+.achievement-icon.legendary { background: linear-gradient(135deg, #f97316, #fbbf24); }
+
+.achievement-info {
+    flex: 1;
+}
+
+.achievement-name {
+    font-weight: 600;
+}
+
+.achievement-desc {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+}
+
+.achievement-xp {
+    font-weight: 600;
+    color: var(--color-success);
+}
+
+/* Heat Map */
+.heatmap-container {
+    overflow-x: auto;
+    padding: var(--spacing-sm);
+}
+
+.heatmap-grid {
+    display: flex;
+    gap: 3px;
+}
+
+.heatmap-week {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.heatmap-day {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+}
+
+.heatmap-day.level-1 { background: rgba(56, 178, 172, 0.2); }
+.heatmap-day.level-2 { background: rgba(56, 178, 172, 0.4); }
+.heatmap-day.level-3 { background: rgba(56, 178, 172, 0.6); }
+.heatmap-day.level-4 { background: rgba(56, 178, 172, 0.8); }
+.heatmap-day.level-5 { background: var(--accent); }
+
+.heatmap-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: var(--spacing-sm);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}

@@ -222,3 +222,187 @@ CREATE TABLE IF NOT EXISTS overnight_deviations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_overnight_deviations_sprint ON overnight_deviations(sprint_id);
+
+-- =============================================================================
+-- Life Balance & Gamification Tables
+-- =============================================================================
+
+-- Life areas (8 pillars)
+CREATE TABLE IF NOT EXISTS life_areas (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(20) NOT NULL UNIQUE,
+    name VARCHAR(50) NOT NULL,
+    icon VARCHAR(50),
+    color VARCHAR(20),
+    daily_xp_cap INTEGER DEFAULT 200,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Insert default life areas
+INSERT INTO life_areas (code, name, icon, color, daily_xp_cap, sort_order) VALUES
+    ('work', 'Work', 'briefcase', '#3b82f6', 200, 1),
+    ('health', 'Health', 'heart', '#ef4444', 150, 2),
+    ('fitness', 'Fitness', 'dumbbell', '#f97316', 200, 3),
+    ('nutrition', 'Nutrition', 'apple', '#22c55e', 150, 4),
+    ('learning', 'Learning', 'book-open', '#8b5cf6', 150, 5),
+    ('social', 'Social', 'users', '#ec4899', 100, 6),
+    ('finance', 'Finance', 'wallet', '#14b8a6', 100, 7),
+    ('mindfulness', 'Mindfulness', 'brain', '#6366f1', 100, 8)
+ON CONFLICT (code) DO NOTHING;
+
+-- Daily XP earned per area
+CREATE TABLE IF NOT EXISTS life_xp (
+    id SERIAL PRIMARY KEY,
+    area_code VARCHAR(20) NOT NULL,
+    date DATE NOT NULL,
+    xp_earned INTEGER DEFAULT 0,
+    activities JSONB DEFAULT '[]',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(area_code, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_life_xp_date ON life_xp(date DESC);
+CREATE INDEX IF NOT EXISTS idx_life_xp_area ON life_xp(area_code);
+
+-- Total XP and level (cached for performance)
+CREATE TABLE IF NOT EXISTS life_totals (
+    id SERIAL PRIMARY KEY,
+    area_code VARCHAR(20) NOT NULL UNIQUE,
+    total_xp INTEGER DEFAULT 0,
+    level INTEGER DEFAULT 1,
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Insert default totals
+INSERT INTO life_totals (area_code, total_xp, level) VALUES
+    ('work', 0, 1), ('health', 0, 1), ('fitness', 0, 1), ('nutrition', 0, 1),
+    ('learning', 0, 1), ('social', 0, 1), ('finance', 0, 1), ('mindfulness', 0, 1),
+    ('total', 0, 1)
+ON CONFLICT (area_code) DO NOTHING;
+
+-- Achievements definitions
+CREATE TABLE IF NOT EXISTS achievements (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(50) NOT NULL UNIQUE,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    icon VARCHAR(50),
+    xp_reward INTEGER DEFAULT 0,
+    area_code VARCHAR(20),
+    criteria JSONB,
+    rarity VARCHAR(20) DEFAULT 'common',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Insert some default achievements
+INSERT INTO achievements (code, name, description, icon, xp_reward, area_code, rarity) VALUES
+    ('early_bird', 'Early Bird', 'Complete a task before 9am', 'sunrise', 50, 'work', 'common'),
+    ('night_owl', 'Night Owl', 'Make a commit after midnight', 'moon', 25, 'work', 'common'),
+    ('marathon', 'Marathon', 'Walk 10,000+ steps in a day', 'footprints', 75, 'health', 'common'),
+    ('iron_will', 'Iron Will', 'Maintain a 7-day workout streak', 'trophy', 200, 'fitness', 'rare'),
+    ('bookworm', 'Bookworm', 'Finish reading a book', 'book', 150, 'learning', 'uncommon'),
+    ('zen_master', 'Zen Master', '30-day meditation streak', 'leaf', 500, 'mindfulness', 'epic'),
+    ('first_commit', 'First Commit', 'Make your first commit', 'git-commit', 25, 'work', 'common'),
+    ('sprint_complete', 'Sprint Complete', 'Complete an overnight sprint', 'rocket', 100, 'work', 'uncommon'),
+    ('social_butterfly', 'Social Butterfly', 'Attend 5 social events in a week', 'party-popper', 100, 'social', 'uncommon'),
+    ('meal_prep', 'Meal Prep', 'Log all meals for a week', 'utensils', 75, 'nutrition', 'uncommon')
+ON CONFLICT (code) DO NOTHING;
+
+-- User earned achievements
+CREATE TABLE IF NOT EXISTS user_achievements (
+    id SERIAL PRIMARY KEY,
+    achievement_code VARCHAR(50) NOT NULL UNIQUE,
+    earned_at TIMESTAMP DEFAULT NOW(),
+    notified BOOLEAN DEFAULT FALSE
+);
+
+-- Streaks tracking
+CREATE TABLE IF NOT EXISTS streaks (
+    id SERIAL PRIMARY KEY,
+    activity VARCHAR(50) NOT NULL UNIQUE,
+    area_code VARCHAR(20),
+    current_streak INTEGER DEFAULT 0,
+    longest_streak INTEGER DEFAULT 0,
+    last_activity_date DATE,
+    freeze_tokens INTEGER DEFAULT 3,
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Insert default streaks to track
+INSERT INTO streaks (activity, area_code, current_streak) VALUES
+    ('workout', 'fitness', 0),
+    ('meditation', 'mindfulness', 0),
+    ('reading', 'learning', 0),
+    ('meal_logging', 'nutrition', 0),
+    ('task_complete', 'work', 0),
+    ('steps_10k', 'health', 0)
+ON CONFLICT (activity) DO NOTHING;
+
+-- Daily aggregated metrics from all sources
+CREATE TABLE IF NOT EXISTS daily_metrics (
+    id SERIAL PRIMARY KEY,
+    date DATE NOT NULL UNIQUE,
+    -- Health metrics
+    steps INTEGER,
+    sleep_hours DECIMAL(4,2),
+    resting_hr INTEGER,
+    active_calories INTEGER,
+    -- Fitness metrics
+    workouts INTEGER DEFAULT 0,
+    workout_minutes INTEGER,
+    personal_records INTEGER DEFAULT 0,
+    -- Nutrition metrics
+    calories_consumed INTEGER,
+    protein_grams INTEGER,
+    meals_logged INTEGER DEFAULT 0,
+    -- Work metrics
+    tasks_completed INTEGER DEFAULT 0,
+    commits INTEGER DEFAULT 0,
+    sprints_completed INTEGER DEFAULT 0,
+    -- Learning metrics
+    pages_read INTEGER DEFAULT 0,
+    courses_progress INTEGER DEFAULT 0,
+    notes_created INTEGER DEFAULT 0,
+    -- Mindfulness metrics
+    meditation_minutes INTEGER DEFAULT 0,
+    journal_entries INTEGER DEFAULT 0,
+    -- Social metrics
+    events_attended INTEGER DEFAULT 0,
+    messages_sent INTEGER DEFAULT 0,
+    -- Finance metrics
+    budget_adherence DECIMAL(5,2),
+    savings_rate DECIMAL(5,2),
+    -- Meta
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_metrics_date ON daily_metrics(date DESC);
+
+-- Goals per area (weekly/daily targets)
+CREATE TABLE IF NOT EXISTS life_goals (
+    id SERIAL PRIMARY KEY,
+    area_code VARCHAR(20) NOT NULL,
+    metric VARCHAR(50) NOT NULL,
+    target_value INTEGER NOT NULL,
+    period VARCHAR(20) DEFAULT 'daily',
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(area_code, metric, period)
+);
+
+-- Insert default goals
+INSERT INTO life_goals (area_code, metric, target_value, period) VALUES
+    ('health', 'steps', 10000, 'daily'),
+    ('health', 'sleep_hours', 7, 'daily'),
+    ('fitness', 'workouts', 4, 'weekly'),
+    ('fitness', 'workout_minutes', 30, 'daily'),
+    ('nutrition', 'meals_logged', 3, 'daily'),
+    ('nutrition', 'protein_grams', 150, 'daily'),
+    ('learning', 'pages_read', 20, 'daily'),
+    ('mindfulness', 'meditation_minutes', 10, 'daily'),
+    ('work', 'tasks_completed', 5, 'daily'),
+    ('social', 'events_attended', 2, 'weekly')
+ON CONFLICT (area_code, metric, period) DO NOTHING;

@@ -744,6 +744,314 @@ def sync_overnight_sprints():
 
 
 # =============================================================================
+# Life Balance API
+# =============================================================================
+
+@app.route('/api/life/dashboard')
+def get_life_dashboard():
+    """Get complete life dashboard data."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        from datetime import date
+        
+        conn = psycopg2.connect(dbname='nick', host='localhost', cursor_factory=RealDictCursor)
+        cur = conn.cursor()
+        today = date.today()
+        
+        # Get life areas with totals
+        cur.execute("""
+            SELECT la.code, la.name, la.icon, la.color, la.daily_xp_cap,
+                   COALESCE(lt.total_xp, 0) as total_xp,
+                   COALESCE(lt.level, 1) as level,
+                   COALESCE(lx.xp_earned, 0) as today_xp
+            FROM life_areas la
+            LEFT JOIN life_totals lt ON la.code = lt.area_code
+            LEFT JOIN life_xp lx ON la.code = lx.area_code AND lx.date = %s
+            ORDER BY la.sort_order
+        """, (today,))
+        areas = [dict(row) for row in cur.fetchall()]
+        
+        # Get overall totals
+        cur.execute("""
+            SELECT total_xp, level FROM life_totals WHERE area_code = 'total'
+        """)
+        total_row = cur.fetchone()
+        total_xp = total_row['total_xp'] if total_row else 0
+        total_level = total_row['level'] if total_row else 1
+        
+        # Get today's total XP
+        cur.execute("""
+            SELECT COALESCE(SUM(xp_earned), 0) as today_total
+            FROM life_xp WHERE date = %s
+        """, (today,))
+        today_total = cur.fetchone()['today_total']
+        
+        # Get streaks
+        cur.execute("""
+            SELECT activity, area_code, current_streak, longest_streak, last_activity_date
+            FROM streaks ORDER BY current_streak DESC
+        """)
+        streaks = [dict(row) for row in cur.fetchall()]
+        
+        # Get recent achievements
+        cur.execute("""
+            SELECT a.code, a.name, a.description, a.icon, a.xp_reward, a.rarity,
+                   ua.earned_at
+            FROM user_achievements ua
+            JOIN achievements a ON ua.achievement_code = a.code
+            ORDER BY ua.earned_at DESC
+            LIMIT 5
+        """)
+        achievements = [dict(row) for row in cur.fetchall()]
+        
+        # Get weekly XP by area for radar chart
+        cur.execute("""
+            SELECT area_code, SUM(xp_earned) as weekly_xp
+            FROM life_xp
+            WHERE date >= %s - INTERVAL '7 days'
+            GROUP BY area_code
+        """, (today,))
+        weekly_xp = {row['area_code']: row['weekly_xp'] for row in cur.fetchall()}
+        
+        # Get daily XP for heatmap (last 12 weeks)
+        cur.execute("""
+            SELECT date, SUM(xp_earned) as daily_xp
+            FROM life_xp
+            WHERE date >= %s - INTERVAL '84 days'
+            GROUP BY date
+            ORDER BY date
+        """, (today,))
+        heatmap_data = [{'date': str(row['date']), 'xp': row['daily_xp']} for row in cur.fetchall()]
+        
+        # Calculate level progress
+        def xp_for_level(level):
+            if level <= 5: return level * 100
+            if level <= 10: return 500 + (level - 5) * 300
+            if level <= 20: return 2000 + (level - 10) * 800
+            if level <= 50: return 10000 + (level - 20) * 1500
+            return 50000 + (level - 50) * 3000
+        
+        current_level_xp = xp_for_level(total_level)
+        next_level_xp = xp_for_level(total_level + 1)
+        xp_in_level = total_xp - current_level_xp
+        xp_needed = next_level_xp - current_level_xp
+        level_progress = (xp_in_level / xp_needed * 100) if xp_needed > 0 else 0
+        
+        # Level titles
+        level_titles = {
+            1: 'Novice', 5: 'Apprentice', 10: 'Journeyman',
+            20: 'Expert', 50: 'Master', 100: 'Legend'
+        }
+        title = 'Legend'
+        for lvl, t in sorted(level_titles.items()):
+            if total_level < lvl:
+                title = level_titles.get(lvl - 1, 'Novice') if lvl > 1 else 'Novice'
+                break
+            title = t
+        
+        conn.close()
+        
+        return jsonify({
+            'total_xp': total_xp,
+            'level': total_level,
+            'level_title': title,
+            'level_progress': round(level_progress, 1),
+            'xp_to_next': next_level_xp - total_xp,
+            'today_xp': today_total,
+            'areas': areas,
+            'weekly_xp': weekly_xp,
+            'streaks': streaks,
+            'achievements': achievements,
+            'heatmap': heatmap_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Life dashboard error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/life/xp', methods=['POST'])
+def add_life_xp():
+    """Add XP for an activity."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    data = request.get_json() or {}
+    area_code = data.get('area')
+    xp = data.get('xp', 0)
+    activity = data.get('activity', 'manual')
+    
+    if not area_code or xp <= 0:
+        return jsonify({'error': 'area and positive xp required'}), 400
+    
+    try:
+        import psycopg2
+        from datetime import date
+        
+        conn = psycopg2.connect(dbname='nick', host='localhost')
+        cur = conn.cursor()
+        today = date.today()
+        
+        # Check daily cap
+        cur.execute("""
+            SELECT daily_xp_cap FROM life_areas WHERE code = %s
+        """, (area_code,))
+        cap_row = cur.fetchone()
+        if not cap_row:
+            return jsonify({'error': 'Invalid area code'}), 400
+        daily_cap = cap_row[0]
+        
+        # Get current daily XP
+        cur.execute("""
+            SELECT xp_earned FROM life_xp WHERE area_code = %s AND date = %s
+        """, (area_code, today))
+        current_row = cur.fetchone()
+        current_xp = current_row[0] if current_row else 0
+        
+        # Cap the XP
+        actual_xp = min(xp, daily_cap - current_xp)
+        if actual_xp <= 0:
+            return jsonify({'message': 'Daily cap reached', 'xp_added': 0})
+        
+        # Upsert daily XP
+        cur.execute("""
+            INSERT INTO life_xp (area_code, date, xp_earned, activities)
+            VALUES (%s, %s, %s, %s::jsonb)
+            ON CONFLICT (area_code, date) DO UPDATE SET
+                xp_earned = life_xp.xp_earned + %s,
+                activities = life_xp.activities || %s::jsonb,
+                updated_at = NOW()
+            RETURNING xp_earned
+        """, (
+            area_code, today, actual_xp,
+            json.dumps([{'activity': activity, 'xp': actual_xp}]),
+            actual_xp,
+            json.dumps([{'activity': activity, 'xp': actual_xp}])
+        ))
+        new_total = cur.fetchone()[0]
+        
+        # Update area totals
+        cur.execute("""
+            UPDATE life_totals SET
+                total_xp = total_xp + %s,
+                level = CASE
+                    WHEN total_xp + %s < 500 THEN GREATEST(1, (total_xp + %s) / 100)
+                    WHEN total_xp + %s < 2000 THEN 5 + (total_xp + %s - 500) / 300
+                    WHEN total_xp + %s < 10000 THEN 10 + (total_xp + %s - 2000) / 800
+                    ELSE 20 + (total_xp + %s - 10000) / 1500
+                END,
+                updated_at = NOW()
+            WHERE area_code = %s
+        """, (actual_xp, actual_xp, actual_xp, actual_xp, actual_xp, actual_xp, actual_xp, actual_xp, area_code))
+        
+        # Update overall totals
+        cur.execute("""
+            UPDATE life_totals SET
+                total_xp = total_xp + %s,
+                level = CASE
+                    WHEN total_xp + %s < 500 THEN GREATEST(1, (total_xp + %s) / 100)
+                    WHEN total_xp + %s < 2000 THEN 5 + (total_xp + %s - 500) / 300
+                    WHEN total_xp + %s < 10000 THEN 10 + (total_xp + %s - 2000) / 800
+                    ELSE 20 + (total_xp + %s - 10000) / 1500
+                END,
+                updated_at = NOW()
+            WHERE area_code = 'total'
+        """, (actual_xp, actual_xp, actual_xp, actual_xp, actual_xp, actual_xp, actual_xp, actual_xp))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'status': 'ok',
+            'xp_added': actual_xp,
+            'daily_total': new_total,
+            'capped': actual_xp < xp
+        })
+        
+    except Exception as e:
+        logger.error(f"Add XP error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/life/achievements')
+def get_all_achievements():
+    """Get all achievements with earned status."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        
+        conn = psycopg2.connect(dbname='nick', host='localhost', cursor_factory=RealDictCursor)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT a.code, a.name, a.description, a.icon, a.xp_reward, a.area_code, a.rarity,
+                   ua.earned_at IS NOT NULL as earned,
+                   ua.earned_at
+            FROM achievements a
+            LEFT JOIN user_achievements ua ON a.code = ua.achievement_code
+            ORDER BY a.rarity DESC, a.xp_reward DESC
+        """)
+        achievements = [dict(row) for row in cur.fetchall()]
+        
+        conn.close()
+        return jsonify({'achievements': achievements})
+        
+    except Exception as e:
+        logger.error(f"Achievements error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/life/goals')
+def get_life_goals():
+    """Get life goals with current progress."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        from datetime import date
+        
+        conn = psycopg2.connect(dbname='nick', host='localhost', cursor_factory=RealDictCursor)
+        cur = conn.cursor()
+        today = date.today()
+        
+        cur.execute("""
+            SELECT g.area_code, g.metric, g.target_value, g.period,
+                   la.name as area_name, la.color
+            FROM life_goals g
+            JOIN life_areas la ON g.area_code = la.code
+            WHERE g.active = TRUE
+            ORDER BY la.sort_order, g.metric
+        """)
+        goals = [dict(row) for row in cur.fetchall()]
+        
+        # Get today's metrics for progress
+        cur.execute("""
+            SELECT * FROM daily_metrics WHERE date = %s
+        """, (today,))
+        today_metrics = cur.fetchone()
+        
+        conn.close()
+        
+        return jsonify({
+            'goals': goals,
+            'today_metrics': dict(today_metrics) if today_metrics else {}
+        })
+        
+    except Exception as e:
+        logger.error(f"Goals error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
