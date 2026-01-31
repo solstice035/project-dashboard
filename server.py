@@ -1019,15 +1019,20 @@ def log_manual_activity():
     duration = data.get('duration', 0)  # minutes
     notes = data.get('notes', '')
     
-    # XP mapping
+    # XP mapping - aligned with PRD's 6 categories
     xp_map = {
-        'workout': {'area': 'fitness', 'xp': 50},
-        'meal': {'area': 'nutrition', 'xp': 10},
-        'meditation': {'area': 'mindfulness', 'xp': 25},
+        'workout': {'area': 'health', 'xp': 50},
+        'meal': {'area': 'health', 'xp': 10},
+        'meditation': {'area': 'health', 'xp': 25},
         'reading': {'area': 'learning', 'xp': 15},
-        'social': {'area': 'social', 'xp': 20},
+        'social': {'area': 'relationships', 'xp': 20},
         'walk': {'area': 'health', 'xp': 25},
-        'journal': {'area': 'mindfulness', 'xp': 15}
+        'journal': {'area': 'learning', 'xp': 15},
+        'hobby': {'area': 'hobbies', 'xp': 30},
+        'chore': {'area': 'life_admin', 'xp': 15},
+        'finance': {'area': 'life_admin', 'xp': 20},
+        'date': {'area': 'relationships', 'xp': 40},
+        'family': {'area': 'relationships', 'xp': 30}
     }
     
     if activity_type not in xp_map:
