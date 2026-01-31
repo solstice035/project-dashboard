@@ -322,6 +322,9 @@ async function refreshAll() {
         populateReadyItems();
         populateActivitySummary();
         updateGitSummary();
+        
+        // Sync XP from dashboard activity
+        syncXpFromDashboard();
 
     } catch (error) {
         console.error('Error:', error);
@@ -2204,6 +2207,64 @@ function renderHeatmap() {
 }
 
 /**
+ * Calculate and award XP from dashboard data
+ * Called after dashboard refresh to sync XP with actual activity
+ */
+async function syncXpFromDashboard() {
+    if (!dashboardData) return;
+    
+    var xpUpdates = [];
+    
+    // Work XP from commits
+    if (dashboardData.sources.git && dashboardData.sources.git.repos) {
+        var totalCommits = dashboardData.sources.git.repos.reduce(function(sum, r) {
+            return sum + (r.commit_count || 0);
+        }, 0);
+        if (totalCommits > 0) {
+            xpUpdates.push({ area: 'work', xp: Math.min(totalCommits * 5, 100), activity: 'commits' });
+        }
+    }
+    
+    // Work XP from completed tasks
+    if (dashboardData.sources.todoist && dashboardData.sources.todoist.tasks) {
+        var completedToday = dashboardData.sources.todoist.completed_today || 0;
+        if (completedToday > 0) {
+            xpUpdates.push({ area: 'work', xp: Math.min(completedToday * 10, 100), activity: 'tasks_completed' });
+        }
+    }
+    
+    // Work XP from sprints
+    if (overnightSprints && overnightSprints.length > 0) {
+        var todaySprint = overnightSprints.find(function(s) {
+            return s.date === new Date().toISOString().split('T')[0];
+        });
+        if (todaySprint && todaySprint.status === 'completed') {
+            xpUpdates.push({ area: 'work', xp: 100, activity: 'sprint_complete' });
+        }
+    }
+    
+    // Apply XP updates
+    for (var i = 0; i < xpUpdates.length; i++) {
+        var update = xpUpdates[i];
+        try {
+            await fetch('/api/life/xp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(update)
+            });
+        } catch (e) {
+            console.error('XP sync error:', e);
+        }
+    }
+    
+    // Refresh life dashboard if on that tab
+    var lifeTab = document.getElementById('tab-life');
+    if (lifeTab && lifeTab.classList.contains('active')) {
+        loadLifeDashboard();
+    }
+}
+
+/**
  * Show area details modal
  */
 function showAreaDetails(areaCode) {
@@ -2261,6 +2322,7 @@ async function showAllAchievements() {
 
 function init() {
     initModal();
+    initKeyboardShortcuts();
 
     var attentionBadge = document.getElementById('attention-badge');
     if (attentionBadge) {
@@ -2292,6 +2354,61 @@ function init() {
     refreshIcons();
     refreshAll();
     loadOvernight();
+}
+
+/**
+ * Initialize keyboard shortcuts
+ */
+function initKeyboardShortcuts() {
+    document.addEventListener('keydown', function(e) {
+        // Ignore if typing in an input
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        
+        // R - Refresh
+        if (e.key === 'r' || e.key === 'R') {
+            e.preventDefault();
+            refreshAll();
+            return;
+        }
+        
+        // 1-4 - Switch tabs
+        if (e.key === '1') {
+            e.preventDefault();
+            switchTab('command-center');
+        } else if (e.key === '2') {
+            e.preventDefault();
+            switchTab('life');
+        } else if (e.key === '3') {
+            e.preventDefault();
+            switchTab('plan');
+        } else if (e.key === '4') {
+            e.preventDefault();
+            switchTab('analytics');
+        }
+        
+        // ? - Show help
+        if (e.key === '?') {
+            e.preventDefault();
+            showKeyboardHelp();
+        }
+    });
+}
+
+/**
+ * Show keyboard shortcuts help
+ */
+function showKeyboardHelp() {
+    var content = '<div class="keyboard-help">';
+    content += '<div class="shortcut-row"><kbd>R</kbd> Refresh dashboard</div>';
+    content += '<div class="shortcut-row"><kbd>1</kbd> Command tab</div>';
+    content += '<div class="shortcut-row"><kbd>2</kbd> Life tab</div>';
+    content += '<div class="shortcut-row"><kbd>3</kbd> Plan tab</div>';
+    content += '<div class="shortcut-row"><kbd>4</kbd> Analytics tab</div>';
+    content += '<div class="shortcut-row"><kbd>?</kbd> Show this help</div>';
+    content += '<div class="shortcut-row"><kbd>Esc</kbd> Close modal</div>';
+    content += '</div>';
+    
+    openModal('Keyboard Shortcuts', content, 'keyboard');
 }
 
 document.addEventListener('DOMContentLoaded', init);
