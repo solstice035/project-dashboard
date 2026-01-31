@@ -965,11 +965,15 @@ def add_life_xp():
         conn.commit()
         conn.close()
         
+        # Check for new achievements
+        new_achievements = check_achievements()
+        
         return jsonify({
             'status': 'ok',
             'xp_added': actual_xp,
             'daily_total': new_total,
-            'capped': actual_xp < xp
+            'capped': actual_xp < xp,
+            'achievements': [{'code': a['code'], 'name': a['name'], 'xp': a['xp_reward']} for a in new_achievements]
         })
         
     except Exception as e:
@@ -1126,18 +1130,136 @@ def log_manual_activity():
         conn.commit()
         conn.close()
         
+        # Check for new achievements
+        new_achievements = check_achievements()
+        
         return jsonify({
             'status': 'ok',
             'activity': activity_type,
             'area': area_code,
             'xp_added': actual_xp,
             'daily_total': new_total,
-            'message': f'+{actual_xp} XP for {activity_type}!'
+            'message': f'+{actual_xp} XP for {activity_type}!',
+            'achievements': [{'code': a['code'], 'name': a['name'], 'xp': a['xp_reward']} for a in new_achievements]
         })
         
     except Exception as e:
         logger.error(f"Log activity error: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+def check_achievements(user_data=None):
+    """Check and award any earned achievements.
+    
+    Called after XP updates to check if any achievements are now unlocked.
+    Returns list of newly earned achievements.
+    """
+    if not DB_AVAILABLE:
+        return []
+    
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        from datetime import date, datetime
+        
+        conn = psycopg2.connect(dbname='nick', host='localhost', cursor_factory=RealDictCursor)
+        cur = conn.cursor()
+        today = date.today()
+        newly_earned = []
+        
+        # Get unearned achievements
+        cur.execute("""
+            SELECT a.code, a.name, a.description, a.icon, a.xp_reward, a.area_code, a.criteria, a.rarity
+            FROM achievements a
+            WHERE NOT EXISTS (
+                SELECT 1 FROM user_achievements ua WHERE ua.achievement_code = a.code
+            )
+        """)
+        unearned = [dict(row) for row in cur.fetchall()]
+        
+        # Get current stats for checking
+        cur.execute("SELECT area_code, total_xp, level FROM life_totals")
+        totals = {row['area_code']: row for row in cur.fetchall()}
+        
+        cur.execute("SELECT activity, current_streak, longest_streak FROM streaks")
+        streaks = {row['activity']: row for row in cur.fetchall()}
+        
+        cur.execute("SELECT area_code, SUM(xp_earned) as total FROM life_xp WHERE date = %s GROUP BY area_code", (today,))
+        today_xp = {row['area_code']: row['total'] for row in cur.fetchall()}
+        
+        # Check each achievement
+        for ach in unearned:
+            criteria = ach.get('criteria') or {}
+            earned = False
+            
+            # Level-based achievements
+            if 'min_level' in criteria:
+                area = criteria.get('area', 'total')
+                if area in totals and totals[area]['level'] >= criteria['min_level']:
+                    earned = True
+            
+            # XP-based achievements
+            if 'min_xp' in criteria:
+                area = criteria.get('area', 'total')
+                if area in totals and totals[area]['total_xp'] >= criteria['min_xp']:
+                    earned = True
+            
+            # Streak-based achievements
+            if 'streak' in criteria:
+                activity = criteria['streak']
+                min_streak = criteria.get('min_streak', 1)
+                if activity in streaks and streaks[activity]['current_streak'] >= min_streak:
+                    earned = True
+            
+            # Daily XP achievements
+            if 'daily_xp' in criteria:
+                area = criteria.get('area')
+                min_xp = criteria['daily_xp']
+                if area:
+                    if area in today_xp and today_xp[area] >= min_xp:
+                        earned = True
+                else:
+                    total_today = sum(today_xp.values())
+                    if total_today >= min_xp:
+                        earned = True
+            
+            # First time achievements (just by having any XP in area)
+            if 'first_xp' in criteria:
+                area = criteria['first_xp']
+                if area in totals and totals[area]['total_xp'] > 0:
+                    earned = True
+            
+            # Award if earned
+            if earned:
+                cur.execute("""
+                    INSERT INTO user_achievements (achievement_code, earned_at)
+                    VALUES (%s, NOW())
+                    ON CONFLICT DO NOTHING
+                    RETURNING achievement_code
+                """, (ach['code'],))
+                
+                if cur.fetchone():
+                    newly_earned.append(ach)
+                    logger.info(f"Achievement unlocked: {ach['name']}")
+        
+        conn.commit()
+        conn.close()
+        
+        return newly_earned
+        
+    except Exception as e:
+        logger.error(f"Achievement check error: {e}")
+        return []
+
+
+@app.route('/api/life/check-achievements', methods=['POST'])
+def trigger_achievement_check():
+    """Manually trigger achievement check."""
+    earned = check_achievements()
+    return jsonify({
+        'checked': True,
+        'newly_earned': [{'code': a['code'], 'name': a['name'], 'xp': a['xp_reward']} for a in earned]
+    })
 
 
 @app.route('/api/life/goals')

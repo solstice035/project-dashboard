@@ -2345,6 +2345,55 @@ kbd {
     border-left: 3px solid var(--warning);
 }
 
+/* -----------------------------------------------------------------------------
+   Achievement Notification
+   ----------------------------------------------------------------------------- */
+.achievement-notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    border: 2px solid #f59e0b;
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    text-align: center;
+    z-index: 10000;
+    box-shadow: 0 10px 40px rgba(245, 158, 11, 0.3);
+    transform: translateX(120%);
+    transition: transform 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    min-width: 250px;
+}
+
+.achievement-notification.show {
+    transform: translateX(0);
+}
+
+.achievement-unlock-icon {
+    font-size: 3rem;
+    margin-bottom: var(--spacing-sm);
+}
+
+.achievement-unlock-title {
+    font-size: var(--font-size-sm);
+    color: #f59e0b;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: var(--spacing-xs);
+}
+
+.achievement-unlock-name {
+    font-size: var(--font-size-lg);
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-xs);
+}
+
+.achievement-unlock-xp {
+    font-size: var(--font-size-sm);
+    color: var(--accent);
+    font-weight: 600;
+}
+
 @keyframes xp-float {
     0% {
         opacity: 0;

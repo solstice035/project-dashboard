@@ -2353,6 +2353,15 @@ async function quickLog(activityType) {
             // Show XP notification
             showXpNotification(data.xp_added, activityType);
             
+            // Show achievement notifications
+            if (data.achievements && data.achievements.length > 0) {
+                data.achievements.forEach(function(ach) {
+                    setTimeout(function() {
+                        showAchievementNotification(ach);
+                    }, 500);
+                });
+            }
+            
             // Refresh life dashboard
             loadLifeDashboard();
         } else {
@@ -2362,6 +2371,33 @@ async function quickLog(activityType) {
     } catch (e) {
         console.error('Quick log fetch error:', e);
     }
+}
+
+/**
+ * Show achievement unlocked notification
+ */
+function showAchievementNotification(achievement) {
+    var notification = document.createElement('div');
+    notification.className = 'achievement-notification';
+    notification.innerHTML = '<div class="achievement-unlock-icon">🏆</div>' +
+        '<div class="achievement-unlock-title">Achievement Unlocked!</div>' +
+        '<div class="achievement-unlock-name">' + escapeHtml(achievement.name) + '</div>' +
+        '<div class="achievement-unlock-xp">+' + achievement.xp + ' XP</div>';
+    
+    document.body.appendChild(notification);
+    
+    // Animate in
+    setTimeout(function() {
+        notification.classList.add('show');
+    }, 100);
+    
+    // Remove after delay
+    setTimeout(function() {
+        notification.classList.remove('show');
+        setTimeout(function() {
+            notification.remove();
+        }, 500);
+    }, 3000);
 }
 
 /**
