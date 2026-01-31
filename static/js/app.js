@@ -2265,6 +2265,63 @@ async function syncXpFromDashboard() {
 }
 
 /**
+ * Quick log an activity
+ */
+async function quickLog(activityType) {
+    try {
+        var resp = await fetch('/api/life/log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: activityType })
+        });
+        
+        var data = await resp.json();
+        
+        if (data.status === 'ok') {
+            // Show XP notification
+            showXpNotification(data.xp_added, activityType);
+            
+            // Refresh life dashboard
+            loadLifeDashboard();
+        } else {
+            console.error('Quick log error:', data);
+        }
+        
+    } catch (e) {
+        console.error('Quick log fetch error:', e);
+    }
+}
+
+/**
+ * Show XP earned notification
+ */
+function showXpNotification(xp, activity) {
+    // Update today's XP with animation
+    var todayXpEl = document.getElementById('today-xp');
+    if (todayXpEl) {
+        todayXpEl.classList.add('xp-earned');
+        setTimeout(function() {
+            todayXpEl.classList.remove('xp-earned');
+        }, 300);
+    }
+    
+    // Create floating notification
+    var notification = document.createElement('div');
+    notification.className = 'xp-notification';
+    notification.innerHTML = '+' + xp + ' XP<br><small>' + activity + '</small>';
+    notification.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); ' +
+        'background: linear-gradient(135deg, var(--accent), #8b5cf6); color: white; ' +
+        'padding: 1rem 2rem; border-radius: 12px; font-size: 1.5rem; font-weight: 700; ' +
+        'text-align: center; z-index: 9999; animation: xp-float 1.5s ease forwards;';
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(function() {
+        notification.remove();
+    }, 1500);
+}
+
+/**
  * Show area details modal
  */
 function showAreaDetails(areaCode) {

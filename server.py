@@ -1008,6 +1008,133 @@ def get_all_achievements():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/life/log', methods=['POST'])
+def log_manual_activity():
+    """Quick log for manual activities (workout, meal, meditation, etc.)"""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    data = request.get_json() or {}
+    activity_type = data.get('type')
+    duration = data.get('duration', 0)  # minutes
+    notes = data.get('notes', '')
+    
+    # XP mapping
+    xp_map = {
+        'workout': {'area': 'fitness', 'xp': 50},
+        'meal': {'area': 'nutrition', 'xp': 10},
+        'meditation': {'area': 'mindfulness', 'xp': 25},
+        'reading': {'area': 'learning', 'xp': 15},
+        'social': {'area': 'social', 'xp': 20},
+        'walk': {'area': 'health', 'xp': 25},
+        'journal': {'area': 'mindfulness', 'xp': 15}
+    }
+    
+    if activity_type not in xp_map:
+        return jsonify({'error': f'Unknown activity type: {activity_type}'}), 400
+    
+    activity_info = xp_map[activity_type]
+    area_code = activity_info['area']
+    base_xp = activity_info['xp']
+    
+    # Bonus XP for duration
+    if duration > 0:
+        duration_bonus = min(duration // 10 * 5, 25)  # 5 XP per 10 minutes, max 25 bonus
+        base_xp += duration_bonus
+    
+    try:
+        import psycopg2
+        from datetime import date
+        
+        conn = psycopg2.connect(dbname='nick', host='localhost')
+        cur = conn.cursor()
+        today = date.today()
+        
+        # Get daily cap
+        cur.execute("SELECT daily_xp_cap FROM life_areas WHERE code = %s", (area_code,))
+        cap_row = cur.fetchone()
+        daily_cap = cap_row[0] if cap_row else 200
+        
+        # Get current daily XP
+        cur.execute("SELECT xp_earned FROM life_xp WHERE area_code = %s AND date = %s", (area_code, today))
+        current_row = cur.fetchone()
+        current_xp = current_row[0] if current_row else 0
+        
+        # Cap the XP
+        actual_xp = min(base_xp, daily_cap - current_xp)
+        if actual_xp <= 0:
+            return jsonify({'message': 'Daily cap reached', 'xp_added': 0})
+        
+        # Add XP
+        activity_data = json.dumps([{
+            'activity': activity_type,
+            'xp': actual_xp,
+            'duration': duration,
+            'notes': notes
+        }])
+        
+        cur.execute("""
+            INSERT INTO life_xp (area_code, date, xp_earned, activities)
+            VALUES (%s, %s, %s, %s::jsonb)
+            ON CONFLICT (area_code, date) DO UPDATE SET
+                xp_earned = life_xp.xp_earned + %s,
+                activities = life_xp.activities || %s::jsonb,
+                updated_at = NOW()
+            RETURNING xp_earned
+        """, (area_code, today, actual_xp, activity_data, actual_xp, activity_data))
+        
+        new_total = cur.fetchone()[0]
+        
+        # Update totals
+        cur.execute("""
+            UPDATE life_totals SET total_xp = total_xp + %s, updated_at = NOW()
+            WHERE area_code = %s OR area_code = 'total'
+        """, (actual_xp, area_code))
+        
+        # Update streak
+        streak_map = {
+            'workout': 'workout',
+            'meditation': 'meditation',
+            'reading': 'reading',
+            'meal': 'meal_logging'
+        }
+        
+        if activity_type in streak_map:
+            streak_activity = streak_map[activity_type]
+            cur.execute("""
+                UPDATE streaks SET
+                    current_streak = CASE
+                        WHEN last_activity_date = %s - INTERVAL '1 day' THEN current_streak + 1
+                        WHEN last_activity_date = %s THEN current_streak
+                        ELSE 1
+                    END,
+                    longest_streak = GREATEST(longest_streak, 
+                        CASE
+                            WHEN last_activity_date = %s - INTERVAL '1 day' THEN current_streak + 1
+                            ELSE 1
+                        END),
+                    last_activity_date = %s,
+                    updated_at = NOW()
+                WHERE activity = %s
+            """, (today, today, today, today, streak_activity))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'status': 'ok',
+            'activity': activity_type,
+            'area': area_code,
+            'xp_added': actual_xp,
+            'daily_total': new_total,
+            'message': f'+{actual_xp} XP for {activity_type}!'
+        })
+        
+    except Exception as e:
+        logger.error(f"Log activity error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/life/goals')
 def get_life_goals():
     """Get life goals with current progress."""

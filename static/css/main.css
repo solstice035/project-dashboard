@@ -2216,3 +2216,81 @@ kbd {
     color: var(--text-primary);
     box-shadow: 0 2px 0 var(--border);
 }
+
+/* -----------------------------------------------------------------------------
+   Quick Log Bar
+   ----------------------------------------------------------------------------- */
+.quick-log-bar {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow-x: auto;
+}
+
+.quick-log-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.375rem;
+    padding: var(--spacing-md);
+    min-width: 80px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.quick-log-btn:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-primary);
+    transform: translateY(-2px);
+}
+
+.quick-log-btn .icon {
+    font-size: 1.25rem;
+}
+
+.quick-log-btn span {
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+}
+
+/* Animation for XP earned */
+@keyframes xp-pop {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+}
+
+.xp-earned {
+    animation: xp-pop 0.3s ease;
+}
+
+@keyframes xp-float {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.5);
+    }
+    20% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.1);
+    }
+    40% {
+        transform: translate(-50%, -50%) scale(1);
+    }
+    80% {
+        opacity: 1;
+        transform: translate(-50%, -70%) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -100%) scale(0.8);
+    }
+}
