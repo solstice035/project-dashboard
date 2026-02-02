@@ -1,23 +1,46 @@
 """
 Database module for Project Dashboard analytics.
-Uses PostgreSQL (database: nick) for storing historical snapshots.
+Uses PostgreSQL for storing historical snapshots.
 """
 
 import json
 import logging
 from datetime import datetime, date, timedelta
+from pathlib import Path
 from typing import Any, Optional
 from contextlib import contextmanager
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import yaml
 
 logger = logging.getLogger(__name__)
 
-DB_CONFIG = {
+# Load config for database settings
+CONFIG_PATH = Path(__file__).parent / 'config.yaml'
+DEFAULT_DB_CONFIG = {
     'dbname': 'nick',
     'host': 'localhost',
 }
+
+
+def _load_db_config() -> dict:
+    """Load database config from config.yaml."""
+    try:
+        if CONFIG_PATH.exists():
+            with open(CONFIG_PATH) as f:
+                config = yaml.safe_load(f) or {}
+                db_section = config.get('database', {})
+                return {
+                    'dbname': db_section.get('name', 'nick'),
+                    'host': db_section.get('host', 'localhost'),
+                }
+    except Exception as e:
+        logger.warning(f"Failed to load database config: {e}, using defaults")
+    return DEFAULT_DB_CONFIG.copy()
+
+
+DB_CONFIG = _load_db_config()
 
 
 @contextmanager
@@ -134,6 +157,101 @@ def store_linear_snapshot(issues: list[dict], by_status: dict) -> None:
         logger.error(f"Failed to store linear snapshot: {e}")
 
 
+def store_inbox_snapshot(accounts_data: list[dict]) -> None:
+    """Store inbox digest snapshot."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            for account in accounts_data:
+                cur.execute("""
+                    INSERT INTO dashboard_inbox_snapshots
+                    (account, account_name, total_unread, urgent_count, 
+                     from_people_count, newsletter_count, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    account.get('account', ''),
+                    account.get('name', ''),
+                    account.get('total_unread', 0),
+                    len(account.get('urgent', [])),
+                    len(account.get('from_people', [])),
+                    account.get('newsletters', 0),
+                    account.get('status', 'unknown')
+                ))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Failed to store inbox snapshot: {e}")
+
+
+def store_school_snapshot(by_child: dict, by_urgency: dict) -> None:
+    """Store school email snapshot."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            for child, stats in by_child.items():
+                cur.execute("""
+                    INSERT INTO dashboard_school_snapshots
+                    (child, email_count, action_count, high_urgency, 
+                     medium_urgency, low_urgency, info_count)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    child,
+                    stats.get('emails', 0),
+                    stats.get('actions', 0),
+                    by_urgency.get('HIGH', 0),
+                    by_urgency.get('MEDIUM', 0),
+                    by_urgency.get('LOW', 0),
+                    by_urgency.get('INFO', 0)
+                ))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Failed to store school snapshot: {e}")
+
+
+def get_inbox_trends(days: int = 7) -> list[dict]:
+    """Get inbox trends for the last N days."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT 
+                    DATE(snapshot_at) as date,
+                    account,
+                    AVG(total_unread) as avg_unread,
+                    MAX(urgent_count) as max_urgent
+                FROM dashboard_inbox_snapshots
+                WHERE snapshot_at > NOW() - INTERVAL '%s days'
+                GROUP BY DATE(snapshot_at), account
+                ORDER BY date DESC
+            """, (days,))
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"Failed to get inbox trends: {e}")
+        return []
+
+
+def get_school_trends(days: int = 30) -> list[dict]:
+    """Get school email trends for the last N days."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT 
+                    DATE(snapshot_at) as date,
+                    child,
+                    SUM(email_count) as emails,
+                    SUM(action_count) as actions,
+                    SUM(high_urgency) as high_urgency
+                FROM dashboard_school_snapshots
+                WHERE snapshot_at > NOW() - INTERVAL '%s days'
+                GROUP BY DATE(snapshot_at), child
+                ORDER BY date DESC
+            """, (days,))
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"Failed to get school trends: {e}")
+        return []
+
+
 def update_daily_stats(git_data: dict, todoist_data: dict, kanban_data: dict) -> None:
     """Update daily aggregate stats."""
     try:
@@ -177,13 +295,13 @@ def get_git_trends(days: int = 30) -> list[dict]:
         with get_connection() as conn:
             cur = conn.cursor()
             cur.execute("""
-                SELECT 
+                SELECT
                     DATE(snapshot_at) as date,
                     SUM(commit_count) as total_commits,
                     COUNT(DISTINCT repo_name) as repos_with_activity,
                     SUM(CASE WHEN is_dirty THEN 1 ELSE 0 END) as dirty_repos
                 FROM dashboard_git_snapshots
-                WHERE snapshot_at >= CURRENT_DATE - INTERVAL '%s days'
+                WHERE snapshot_at >= CURRENT_DATE - INTERVAL '1 day' * %s
                 GROUP BY DATE(snapshot_at)
                 ORDER BY date
             """, (days,))
@@ -199,13 +317,13 @@ def get_todoist_trends(days: int = 30) -> list[dict]:
         with get_connection() as conn:
             cur = conn.cursor()
             cur.execute("""
-                SELECT 
+                SELECT
                     DATE(snapshot_at) as date,
                     AVG(total_tasks) as avg_tasks,
                     AVG(overdue_tasks) as avg_overdue,
                     AVG(today_tasks) as avg_today
                 FROM dashboard_todoist_snapshots
-                WHERE snapshot_at >= CURRENT_DATE - INTERVAL '%s days'
+                WHERE snapshot_at >= CURRENT_DATE - INTERVAL '1 day' * %s
                 GROUP BY DATE(snapshot_at)
                 ORDER BY date
             """, (days,))
@@ -221,7 +339,7 @@ def get_kanban_trends(days: int = 30) -> list[dict]:
         with get_connection() as conn:
             cur = conn.cursor()
             cur.execute("""
-                SELECT 
+                SELECT
                     DATE(snapshot_at) as date,
                     AVG(backlog_count) as avg_backlog,
                     AVG(ready_count) as avg_ready,
@@ -229,7 +347,7 @@ def get_kanban_trends(days: int = 30) -> list[dict]:
                     AVG(done_count) as avg_done,
                     AVG(total_tasks) as avg_total
                 FROM dashboard_kanban_snapshots
-                WHERE snapshot_at >= CURRENT_DATE - INTERVAL '%s days'
+                WHERE snapshot_at >= CURRENT_DATE - INTERVAL '1 day' * %s
                 GROUP BY DATE(snapshot_at)
                 ORDER BY date
             """, (days,))
@@ -245,12 +363,12 @@ def get_linear_trends(days: int = 30) -> list[dict]:
         with get_connection() as conn:
             cur = conn.cursor()
             cur.execute("""
-                SELECT 
+                SELECT
                     DATE(snapshot_at) as date,
                     AVG(total_issues) as avg_total,
                     by_status
                 FROM dashboard_linear_snapshots
-                WHERE snapshot_at >= CURRENT_DATE - INTERVAL '%s days'
+                WHERE snapshot_at >= CURRENT_DATE - INTERVAL '1 day' * %s
                 GROUP BY DATE(snapshot_at), by_status
                 ORDER BY date
             """, (days,))
@@ -280,7 +398,7 @@ def get_daily_summary(days: int = 7) -> list[dict]:
             cur = conn.cursor()
             cur.execute("""
                 SELECT * FROM dashboard_daily_stats
-                WHERE stat_date >= CURRENT_DATE - INTERVAL '%s days'
+                WHERE stat_date >= CURRENT_DATE - INTERVAL '1 day' * %s
                 ORDER BY stat_date DESC
             """, (days,))
             return [dict(row) for row in cur.fetchall()]
@@ -301,7 +419,7 @@ def get_repo_history(repo_name: str, days: int = 30) -> list[dict]:
                     BOOL_OR(is_dirty) as was_dirty
                 FROM dashboard_git_snapshots
                 WHERE repo_name = %s
-                  AND snapshot_at >= CURRENT_DATE - INTERVAL '%s days'
+                  AND snapshot_at >= CURRENT_DATE - INTERVAL '1 day' * %s
                 GROUP BY DATE(snapshot_at)
                 ORDER BY date
             """, (repo_name, days))
@@ -407,7 +525,7 @@ def get_planning_sessions(days: int = 30, limit: int = 20) -> list[dict]:
                 SELECT id, started_at, ended_at, duration_seconds,
                        messages_count, actions_count
                 FROM planning_sessions
-                WHERE started_at > NOW() - INTERVAL '%s days'
+                WHERE started_at > NOW() - INTERVAL '1 day' * %s
                 ORDER BY started_at DESC
                 LIMIT %s
             """, (days, limit))
@@ -425,7 +543,7 @@ def get_planning_action_breakdown(days: int = 30) -> list[dict]:
             cur.execute("""
                 SELECT action_type, COUNT(*) as count
                 FROM planning_actions
-                WHERE action_at > NOW() - INTERVAL '%s days'
+                WHERE action_at > NOW() - INTERVAL '1 day' * %s
                 GROUP BY action_type
                 ORDER BY count DESC
             """, (days,))
@@ -448,7 +566,7 @@ def get_planning_totals(days: int = 30) -> dict:
                     COALESCE(SUM(actions_count), 0) as total_actions,
                     COALESCE(AVG(duration_seconds), 0) as avg_duration
                 FROM planning_sessions
-                WHERE started_at > NOW() - INTERVAL '%s days'
+                WHERE started_at > NOW() - INTERVAL '1 day' * %s
                   AND ended_at IS NOT NULL
             """, (days,))
             result = cur.fetchone()
@@ -675,3 +793,793 @@ def get_sprint_deviations(sprint_id: int) -> list[dict]:
     except Exception as e:
         logger.error(f"Failed to get sprint deviations: {e}")
         return []
+
+
+# =============================================================================
+# Configuration Tables
+# =============================================================================
+
+def get_activity_types(active_only: bool = True) -> list[dict]:
+    """Get all activity types for XP logging."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            query = """
+                SELECT code, name, description, area_code, base_xp, icon, color,
+                       duration_bonus, active, sort_order
+                FROM activity_types
+            """
+            if active_only:
+                query += " WHERE active = TRUE"
+            query += " ORDER BY sort_order, name"
+            cur.execute(query)
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"Failed to get activity types: {e}")
+        return []
+
+
+def get_activity_type(code: str) -> Optional[dict]:
+    """Get a single activity type by code."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT code, name, description, area_code, base_xp, icon, color,
+                       duration_bonus, active, sort_order
+                FROM activity_types
+                WHERE code = %s
+            """, (code,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"Failed to get activity type {code}: {e}")
+        return None
+
+
+def upsert_activity_type(data: dict) -> bool:
+    """Create or update an activity type."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO activity_types (code, name, description, area_code, base_xp,
+                                           icon, color, duration_bonus, active, sort_order)
+                VALUES (%(code)s, %(name)s, %(description)s, %(area_code)s, %(base_xp)s,
+                        %(icon)s, %(color)s, %(duration_bonus)s, %(active)s, %(sort_order)s)
+                ON CONFLICT (code) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    description = EXCLUDED.description,
+                    area_code = EXCLUDED.area_code,
+                    base_xp = EXCLUDED.base_xp,
+                    icon = EXCLUDED.icon,
+                    color = EXCLUDED.color,
+                    duration_bonus = EXCLUDED.duration_bonus,
+                    active = EXCLUDED.active,
+                    sort_order = EXCLUDED.sort_order,
+                    updated_at = NOW()
+            """, data)
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Failed to upsert activity type: {e}")
+        return False
+
+
+def delete_activity_type(code: str) -> bool:
+    """Delete an activity type."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM activity_types WHERE code = %s", (code,))
+            conn.commit()
+            return cur.rowcount > 0
+    except Exception as e:
+        logger.error(f"Failed to delete activity type: {e}")
+        return False
+
+
+def get_game_config(key: str = None) -> Any:
+    """Get game configuration value(s)."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            if key:
+                cur.execute("""
+                    SELECT key, value, data_type, description, category
+                    FROM game_config WHERE key = %s
+                """, (key,))
+                row = cur.fetchone()
+                if row:
+                    return _convert_config_value(row['value'], row['data_type'])
+                return None
+            else:
+                cur.execute("""
+                    SELECT key, value, data_type, description, category
+                    FROM game_config ORDER BY category, key
+                """)
+                return {row['key']: _convert_config_value(row['value'], row['data_type'])
+                        for row in cur.fetchall()}
+    except Exception as e:
+        logger.error(f"Failed to get game config: {e}")
+        return {} if key is None else None
+
+
+def _convert_config_value(value: str, data_type: str) -> Any:
+    """Convert config value to appropriate Python type."""
+    if data_type == 'integer':
+        return int(value)
+    elif data_type == 'float':
+        return float(value)
+    elif data_type == 'boolean':
+        return value.lower() in ('true', '1', 'yes')
+    elif data_type == 'json':
+        return json.loads(value)
+    return value
+
+
+def set_game_config(key: str, value: Any, data_type: str = 'string',
+                    description: str = None, category: str = 'general') -> bool:
+    """Set a game configuration value."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO game_config (key, value, data_type, description, category)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    data_type = EXCLUDED.data_type,
+                    description = COALESCE(EXCLUDED.description, game_config.description),
+                    category = COALESCE(EXCLUDED.category, game_config.category),
+                    updated_at = NOW()
+            """, (key, str(value), data_type, description, category))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Failed to set game config: {e}")
+        return False
+
+
+def get_kanban_columns(active_only: bool = True) -> list[dict]:
+    """Get all kanban column definitions."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            query = """
+                SELECT code, title, label, icon, color, wip_limit, sort_order, active
+                FROM kanban_columns
+            """
+            if active_only:
+                query += " WHERE active = TRUE"
+            query += " ORDER BY sort_order"
+            cur.execute(query)
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"Failed to get kanban columns: {e}")
+        return []
+
+
+def upsert_kanban_column(data: dict) -> bool:
+    """Create or update a kanban column."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO kanban_columns (code, title, label, icon, color, wip_limit, sort_order, active)
+                VALUES (%(code)s, %(title)s, %(label)s, %(icon)s, %(color)s,
+                        %(wip_limit)s, %(sort_order)s, %(active)s)
+                ON CONFLICT (code) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    label = EXCLUDED.label,
+                    icon = EXCLUDED.icon,
+                    color = EXCLUDED.color,
+                    wip_limit = EXCLUDED.wip_limit,
+                    sort_order = EXCLUDED.sort_order,
+                    active = EXCLUDED.active
+            """, data)
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Failed to upsert kanban column: {e}")
+        return False
+
+
+def get_xp_rules(source: str = None, active_only: bool = True) -> list[dict]:
+    """Get XP calculation rules."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            query = """
+                SELECT code, name, description, source, area_code, rule_type,
+                       condition, xp_per_unit, max_xp, active
+                FROM xp_rules
+                WHERE 1=1
+            """
+            params = []
+            if active_only:
+                query += " AND active = TRUE"
+            if source:
+                query += " AND source = %s"
+                params.append(source)
+            query += " ORDER BY source, code"
+            cur.execute(query, params)
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"Failed to get XP rules: {e}")
+        return []
+
+
+def upsert_xp_rule(data: dict) -> bool:
+    """Create or update an XP rule."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            condition_json = json.dumps(data.get('condition', {})) if isinstance(data.get('condition'), dict) else data.get('condition')
+            cur.execute("""
+                INSERT INTO xp_rules (code, name, description, source, area_code, rule_type,
+                                     condition, xp_per_unit, max_xp, active)
+                VALUES (%(code)s, %(name)s, %(description)s, %(source)s, %(area_code)s,
+                        %(rule_type)s, %(condition)s::jsonb, %(xp_per_unit)s, %(max_xp)s, %(active)s)
+                ON CONFLICT (code) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    description = EXCLUDED.description,
+                    source = EXCLUDED.source,
+                    area_code = EXCLUDED.area_code,
+                    rule_type = EXCLUDED.rule_type,
+                    condition = EXCLUDED.condition,
+                    xp_per_unit = EXCLUDED.xp_per_unit,
+                    max_xp = EXCLUDED.max_xp,
+                    active = EXCLUDED.active
+            """, {**data, 'condition': condition_json})
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Failed to upsert XP rule: {e}")
+        return False
+
+
+def get_priority_levels() -> list[dict]:
+    """Get all priority level definitions."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT level, code, name, color, emoji, sort_order
+                FROM priority_levels
+                ORDER BY sort_order
+            """)
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"Failed to get priority levels: {e}")
+        return []
+
+
+# =============================================================================
+# Email Automation: Notification History
+# =============================================================================
+
+def log_notification(
+    channel: str,
+    source: str,
+    title: str,
+    body: str,
+    priority: str,
+    success: bool,
+    error: Optional[str] = None,
+    message_id: Optional[str] = None
+) -> Optional[int]:
+    """Log a notification to history. Returns notification ID or None on error."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO notification_history
+                (channel, source, title, body, priority, success, error_message, message_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (channel, source, title, body, priority, success, error, message_id))
+            result = cur.fetchone()
+            conn.commit()
+            return result['id'] if result else None
+    except Exception as e:
+        logger.error(f"Failed to log notification: {e}")
+        return None
+
+
+def get_notification_history(
+    days: int = 7,
+    channel: Optional[str] = None,
+    source: Optional[str] = None,
+    limit: int = 100
+) -> list[dict]:
+    """Get notification history with optional filters."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            query = """
+                SELECT id, channel, source, title, body, priority,
+                       sent_at, success, error_message, message_id
+                FROM notification_history
+                WHERE sent_at > NOW() - INTERVAL '%s days'
+            """
+            params = [days]
+
+            if channel:
+                query += " AND channel = %s"
+                params.append(channel)
+            if source:
+                query += " AND source = %s"
+                params.append(source)
+
+            query += " ORDER BY sent_at DESC LIMIT %s"
+            params.append(limit)
+
+            cur.execute(query, params)
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"Failed to get notification history: {e}")
+        return []
+
+
+def get_notification_stats(days: int = 7) -> dict:
+    """Get notification statistics for the last N days."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT
+                    channel,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful,
+                    SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as failed
+                FROM notification_history
+                WHERE sent_at > NOW() - INTERVAL '%s days'
+                GROUP BY channel
+            """, (days,))
+            by_channel = {row['channel']: dict(row) for row in cur.fetchall()}
+
+            cur.execute("""
+                SELECT
+                    source,
+                    COUNT(*) as total
+                FROM notification_history
+                WHERE sent_at > NOW() - INTERVAL '%s days'
+                GROUP BY source
+            """, (days,))
+            by_source = {row['source']: row['total'] for row in cur.fetchall()}
+
+            return {
+                'by_channel': by_channel,
+                'by_source': by_source,
+                'days': days
+            }
+    except Exception as e:
+        logger.error(f"Failed to get notification stats: {e}")
+        return {}
+
+
+# =============================================================================
+# Email Automation: Scheduled Job Tracking
+# =============================================================================
+
+def start_job_run(job_id: str, trigger_type: str = 'scheduled') -> Optional[int]:
+    """Record start of a scheduled job run. Returns run ID or None on error."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO scheduled_job_runs (job_id, trigger_type, status)
+                VALUES (%s, %s, 'running')
+                RETURNING id
+            """, (job_id, trigger_type))
+            result = cur.fetchone()
+            conn.commit()
+            return result['id'] if result else None
+    except Exception as e:
+        logger.error(f"Failed to start job run: {e}")
+        return None
+
+
+def complete_job_run(
+    run_id: int,
+    status: str,
+    result: Optional[dict] = None,
+    error: Optional[str] = None
+) -> bool:
+    """Record completion of a scheduled job run."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE scheduled_job_runs
+                SET completed_at = NOW(),
+                    status = %s,
+                    result = %s,
+                    error_message = %s,
+                    duration_seconds = EXTRACT(EPOCH FROM (NOW() - started_at))
+                WHERE id = %s
+            """, (status, json.dumps(result) if result else None, error, run_id))
+            conn.commit()
+            return cur.rowcount > 0
+    except Exception as e:
+        logger.error(f"Failed to complete job run: {e}")
+        return False
+
+
+def get_job_runs(
+    job_id: Optional[str] = None,
+    days: int = 7,
+    limit: int = 50
+) -> list[dict]:
+    """Get recent job runs with optional job ID filter."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            query = """
+                SELECT id, job_id, started_at, completed_at, status,
+                       trigger_type, result, error_message, duration_seconds
+                FROM scheduled_job_runs
+                WHERE started_at > NOW() - INTERVAL '%s days'
+            """
+            params = [days]
+
+            if job_id:
+                query += " AND job_id = %s"
+                params.append(job_id)
+
+            query += " ORDER BY started_at DESC LIMIT %s"
+            params.append(limit)
+
+            cur.execute(query, params)
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"Failed to get job runs: {e}")
+        return []
+
+
+def get_last_successful_run(job_id: str) -> Optional[dict]:
+    """Get the last successful run of a job."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, job_id, started_at, completed_at, result, duration_seconds
+                FROM scheduled_job_runs
+                WHERE job_id = %s AND status = 'success'
+                ORDER BY completed_at DESC
+                LIMIT 1
+            """, (job_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"Failed to get last successful run: {e}")
+        return None
+
+
+# =============================================================================
+# Email Automation: Fetch Logging
+# =============================================================================
+
+def log_email_fetch(
+    account: str,
+    operation: str,
+    details: str,
+    success: bool,
+    error: Optional[str] = None
+) -> Optional[int]:
+    """Log an email fetch operation. Returns log ID or None on error."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO email_fetch_logs
+                (account, operation, details, success, error_message)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+            """, (account, operation, details, success, error))
+            result = cur.fetchone()
+            conn.commit()
+            return result['id'] if result else None
+    except Exception as e:
+        logger.error(f"Failed to log email fetch: {e}")
+        return None
+
+
+def get_email_fetch_logs(
+    account: Optional[str] = None,
+    hours: int = 24,
+    success_only: bool = False,
+    limit: int = 100
+) -> list[dict]:
+    """Get email fetch logs with optional filters."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            query = """
+                SELECT id, account, operation, details, success, error_message, logged_at
+                FROM email_fetch_logs
+                WHERE logged_at > NOW() - INTERVAL '%s hours'
+            """
+            params = [hours]
+
+            if account:
+                query += " AND account = %s"
+                params.append(account)
+            if success_only:
+                query += " AND success = TRUE"
+
+            query += " ORDER BY logged_at DESC LIMIT %s"
+            params.append(limit)
+
+            cur.execute(query, params)
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"Failed to get email fetch logs: {e}")
+        return []
+
+
+def get_email_fetch_stats(hours: int = 24) -> dict:
+    """Get email fetch statistics."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT
+                    account,
+                    COUNT(*) as total_ops,
+                    SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful,
+                    SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as failed,
+                    MAX(logged_at) as last_fetch
+                FROM email_fetch_logs
+                WHERE logged_at > NOW() - INTERVAL '%s hours'
+                GROUP BY account
+            """, (hours,))
+            by_account = {row['account']: dict(row) for row in cur.fetchall()}
+
+            cur.execute("""
+                SELECT
+                    operation,
+                    COUNT(*) as count,
+                    SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful
+                FROM email_fetch_logs
+                WHERE logged_at > NOW() - INTERVAL '%s hours'
+                GROUP BY operation
+            """, (hours,))
+            by_operation = {row['operation']: dict(row) for row in cur.fetchall()}
+
+            return {
+                'by_account': by_account,
+                'by_operation': by_operation,
+                'hours': hours
+            }
+    except Exception as e:
+        logger.error(f"Failed to get email fetch stats: {e}")
+        return {}
+
+
+def cache_inbox_message(
+    account: str,
+    message_id: str,
+    subject: str,
+    from_name: str,
+    from_email: str,
+    date_header: str,
+    is_urgent: bool = False,
+    is_from_person: bool = False,
+    body_text: Optional[str] = None
+) -> bool:
+    """Cache an inbox message for analytics. Upserts on conflict."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO inbox_message_cache
+                (account, message_id, subject, from_name, from_email, date_header,
+                 is_urgent, is_from_person, body_text)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (account, message_id) DO UPDATE SET
+                    last_seen_at = CURRENT_TIMESTAMP,
+                    is_urgent = EXCLUDED.is_urgent,
+                    is_from_person = EXCLUDED.is_from_person,
+                    body_text = COALESCE(EXCLUDED.body_text, inbox_message_cache.body_text)
+            """, (account, message_id, subject, from_name, from_email, date_header,
+                  is_urgent, is_from_person, body_text))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Failed to cache inbox message: {e}")
+        return False
+
+
+def get_email_content_for_processing(account: str, message_id: str) -> dict:
+    """Get full email content for AI/action processing.
+
+    Combines body text from inbox_message_cache with extracted attachment
+    text from email_attachments for comprehensive content analysis.
+
+    Returns:
+        {'body': str, 'subject': str, 'from_name': str, 'from_email': str,
+         'attachments': [{'filename': str, 'text': str, 'content_type': str}]}
+    """
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+
+            # Get message body and metadata
+            cur.execute("""
+                SELECT subject, from_name, from_email, body_text
+                FROM inbox_message_cache
+                WHERE account = %s AND message_id = %s
+            """, (account, message_id))
+            msg_row = cur.fetchone()
+
+            if not msg_row:
+                return {'body': '', 'subject': '', 'from_name': '', 'from_email': '',
+                        'attachments': [], 'error': 'Message not found'}
+
+            # Get attachment content
+            cur.execute("""
+                SELECT filename, content_type, extracted_text
+                FROM email_attachments
+                WHERE account = %s AND message_id = %s
+                  AND extraction_status = 'success'
+                  AND extracted_text IS NOT NULL
+                ORDER BY filename
+            """, (account, message_id))
+            attachments = [
+                {'filename': row['filename'],
+                 'content_type': row['content_type'],
+                 'text': row['extracted_text']}
+                for row in cur.fetchall()
+            ]
+
+            return {
+                'body': msg_row['body_text'] or '',
+                'subject': msg_row['subject'] or '',
+                'from_name': msg_row['from_name'] or '',
+                'from_email': msg_row['from_email'] or '',
+                'attachments': attachments
+            }
+    except Exception as e:
+        logger.error(f"Failed to get email content for processing: {e}")
+        return {'body': '', 'subject': '', 'from_name': '', 'from_email': '',
+                'attachments': [], 'error': str(e)}
+
+
+def get_inbox_message_stats(days: int = 7) -> dict:
+    """Get inbox message cache statistics."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT
+                    account,
+                    COUNT(*) as total_messages,
+                    SUM(CASE WHEN is_urgent THEN 1 ELSE 0 END) as urgent_count,
+                    SUM(CASE WHEN is_from_person THEN 1 ELSE 0 END) as from_people_count,
+                    MIN(first_seen_at) as earliest,
+                    MAX(last_seen_at) as latest
+                FROM inbox_message_cache
+                WHERE last_seen_at > NOW() - INTERVAL '%s days'
+                GROUP BY account
+            """, (days,))
+            return {row['account']: dict(row) for row in cur.fetchall()}
+    except Exception as e:
+        logger.error(f"Failed to get inbox message stats: {e}")
+        return {}
+
+
+# =============================================================================
+# Email Automation: Attachment Storage
+# =============================================================================
+
+def store_attachment(
+    account: str,
+    message_id: str,
+    filename: str,
+    content_type: str,
+    size_bytes: int,
+    extracted_text: Optional[str] = None,
+    extraction_status: str = 'success',
+    extraction_error: Optional[str] = None
+) -> Optional[int]:
+    """Store email attachment metadata and extracted content."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO email_attachments
+                (account, message_id, filename, content_type, size_bytes,
+                 extracted_text, extraction_status, extraction_error)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (account, message_id, filename) DO UPDATE SET
+                    extracted_text = EXCLUDED.extracted_text,
+                    extraction_status = EXCLUDED.extraction_status,
+                    extraction_error = EXCLUDED.extraction_error
+                RETURNING id
+            """, (account, message_id, filename, content_type, size_bytes,
+                  extracted_text, extraction_status, extraction_error))
+            result = cur.fetchone()
+            conn.commit()
+            return result['id'] if result else None
+    except Exception as e:
+        logger.error(f"Failed to store attachment: {e}")
+        return None
+
+
+def get_attachments_for_message(account: str, message_id: str) -> list[dict]:
+    """Get all attachments for a specific message."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, filename, content_type, size_bytes,
+                       extracted_text, extraction_status, extraction_error,
+                       first_seen_at
+                FROM email_attachments
+                WHERE account = %s AND message_id = %s
+                ORDER BY filename
+            """, (account, message_id))
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"Failed to get attachments: {e}")
+        return []
+
+
+def search_attachment_content(
+    query: str,
+    account: Optional[str] = None,
+    days: int = 30,
+    limit: int = 50
+) -> list[dict]:
+    """Full-text search across attachment content."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            sql = """
+                SELECT a.id, a.account, a.message_id, a.filename,
+                       a.content_type, a.size_bytes, a.first_seen_at,
+                       ts_headline('english', a.extracted_text, plainto_tsquery('english', %s),
+                                   'MaxWords=50, MinWords=20') as snippet
+                FROM email_attachments a
+                WHERE a.extracted_text IS NOT NULL
+                  AND to_tsvector('english', a.extracted_text) @@ plainto_tsquery('english', %s)
+                  AND a.first_seen_at > NOW() - INTERVAL '%s days'
+            """
+            params = [query, query, days]
+
+            if account:
+                sql += " AND a.account = %s"
+                params.append(account)
+
+            sql += " ORDER BY a.first_seen_at DESC LIMIT %s"
+            params.append(limit)
+
+            cur.execute(sql, params)
+            return [dict(row) for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"Failed to search attachments: {e}")
+        return []
+
+
+def get_attachment_stats(days: int = 7) -> dict:
+    """Get attachment statistics."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT
+                    COUNT(*) as total_attachments,
+                    SUM(size_bytes) as total_bytes,
+                    COUNT(CASE WHEN extraction_status = 'success' THEN 1 END) as extracted,
+                    COUNT(CASE WHEN extraction_status = 'failed' THEN 1 END) as failed,
+                    COUNT(CASE WHEN content_type LIKE 'application/pdf%%' THEN 1 END) as pdfs
+                FROM email_attachments
+                WHERE first_seen_at > NOW() - INTERVAL '%s days'
+            """, (days,))
+            row = cur.fetchone()
+            return dict(row) if row else {}
+    except Exception as e:
+        logger.error(f"Failed to get attachment stats: {e}")
+        return {}

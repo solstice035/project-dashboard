@@ -55,6 +55,55 @@ CREATE TABLE IF NOT EXISTS dashboard_linear_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_linear_snapshots_time ON dashboard_linear_snapshots(snapshot_at);
 
+-- Inbox digest snapshots
+CREATE TABLE IF NOT EXISTS dashboard_inbox_snapshots (
+    id SERIAL PRIMARY KEY,
+    account VARCHAR(255) NOT NULL,
+    account_name VARCHAR(100),
+    total_unread INTEGER DEFAULT 0,
+    urgent_count INTEGER DEFAULT 0,
+    from_people_count INTEGER DEFAULT 0,
+    newsletter_count INTEGER DEFAULT 0,
+    status VARCHAR(50) DEFAULT 'ok',
+    snapshot_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbox_snapshots_time ON dashboard_inbox_snapshots(snapshot_at);
+CREATE INDEX IF NOT EXISTS idx_inbox_snapshots_account ON dashboard_inbox_snapshots(account);
+
+-- School email snapshots
+CREATE TABLE IF NOT EXISTS dashboard_school_snapshots (
+    id SERIAL PRIMARY KEY,
+    child VARCHAR(100) NOT NULL,
+    email_count INTEGER DEFAULT 0,
+    action_count INTEGER DEFAULT 0,
+    high_urgency INTEGER DEFAULT 0,
+    medium_urgency INTEGER DEFAULT 0,
+    low_urgency INTEGER DEFAULT 0,
+    info_count INTEGER DEFAULT 0,
+    snapshot_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_school_snapshots_time ON dashboard_school_snapshots(snapshot_at);
+CREATE INDEX IF NOT EXISTS idx_school_snapshots_child ON dashboard_school_snapshots(child);
+
+-- School email actions log (individual actions for analytics)
+CREATE TABLE IF NOT EXISTS dashboard_school_actions (
+    id SERIAL PRIMARY KEY,
+    child VARCHAR(100),
+    action_type VARCHAR(50),  -- 'task', 'event', 'notification'
+    urgency VARCHAR(20),
+    title TEXT,
+    due_date DATE,
+    source_email_subject TEXT,
+    todoist_task_id VARCHAR(100),
+    calendar_event_id VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_school_actions_time ON dashboard_school_actions(created_at);
+CREATE INDEX IF NOT EXISTS idx_school_actions_child ON dashboard_school_actions(child);
+
 -- Daily aggregates for quick trend queries
 CREATE TABLE IF NOT EXISTS dashboard_daily_stats (
     id SERIAL PRIMARY KEY,
@@ -69,6 +118,10 @@ CREATE TABLE IF NOT EXISTS dashboard_daily_stats (
     kanban_added INTEGER DEFAULT 0,
     linear_completed INTEGER DEFAULT 0,
     linear_added INTEGER DEFAULT 0,
+    inbox_total_unread INTEGER DEFAULT 0,
+    inbox_urgent INTEGER DEFAULT 0,
+    school_emails_processed INTEGER DEFAULT 0,
+    school_actions_created INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -450,3 +503,259 @@ ON CONFLICT (code) DO NOTHING;
 
 CREATE INDEX IF NOT EXISTS idx_days_since_history_event ON days_since_history(event_code);
 CREATE INDEX IF NOT EXISTS idx_days_since_history_date ON days_since_history(occurred_at DESC);
+
+-- =============================================================================
+-- Configuration Tables (Database-Driven Settings)
+-- =============================================================================
+
+-- Activity types for XP logging (replaces hardcoded xp_map)
+CREATE TABLE IF NOT EXISTS activity_types (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    area_code VARCHAR(20) NOT NULL REFERENCES life_areas(code),
+    base_xp INTEGER NOT NULL DEFAULT 10,
+    icon VARCHAR(50),
+    color VARCHAR(20),
+    duration_bonus BOOLEAN DEFAULT FALSE,
+    active BOOLEAN DEFAULT TRUE,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Insert default activity types (migrated from hardcoded xp_map)
+INSERT INTO activity_types (code, name, description, area_code, base_xp, icon, duration_bonus, sort_order) VALUES
+    ('workout', 'Workout', 'General workout or gym session', 'fitness', 50, 'dumbbell', TRUE, 1),
+    ('walk', 'Walk', 'Walking or hiking activity', 'fitness', 25, 'footprints', TRUE, 2),
+    ('meal', 'Meal Logged', 'Log a healthy meal', 'nutrition', 10, 'utensils', FALSE, 3),
+    ('meditation', 'Meditation', 'Mindfulness or meditation session', 'mindfulness', 25, 'brain', TRUE, 4),
+    ('journal', 'Journal Entry', 'Writing in journal or diary', 'mindfulness', 15, 'book-open', FALSE, 5),
+    ('hobby', 'Hobby Time', 'Creative or hobby activity', 'mindfulness', 30, 'palette', TRUE, 6),
+    ('reading', 'Reading', 'Reading books or articles', 'learning', 15, 'book', TRUE, 7),
+    ('social', 'Social Activity', 'General social interaction', 'social', 20, 'users', FALSE, 8),
+    ('date', 'Date Night', 'Romantic date activity', 'social', 40, 'heart', FALSE, 9),
+    ('family', 'Family Time', 'Quality time with family', 'social', 30, 'home', FALSE, 10),
+    ('chore', 'Household Chore', 'Completing household tasks', 'finance', 15, 'check-square', FALSE, 11),
+    ('finance_task', 'Finance Task', 'Managing finances or budgeting', 'finance', 20, 'wallet', FALSE, 12)
+ON CONFLICT (code) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    area_code = EXCLUDED.area_code,
+    base_xp = EXCLUDED.base_xp,
+    icon = EXCLUDED.icon,
+    duration_bonus = EXCLUDED.duration_bonus,
+    sort_order = EXCLUDED.sort_order,
+    updated_at = NOW();
+
+CREATE INDEX IF NOT EXISTS idx_activity_types_area ON activity_types(area_code);
+CREATE INDEX IF NOT EXISTS idx_activity_types_active ON activity_types(active) WHERE active = TRUE;
+
+-- Game configuration (replaces hardcoded Defaults class constants)
+CREATE TABLE IF NOT EXISTS game_config (
+    id SERIAL PRIMARY KEY,
+    key VARCHAR(100) UNIQUE NOT NULL,
+    value TEXT NOT NULL,
+    data_type VARCHAR(20) DEFAULT 'integer',
+    description TEXT,
+    category VARCHAR(50) DEFAULT 'general',
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Insert default game configuration
+INSERT INTO game_config (key, value, data_type, description, category) VALUES
+    ('DURATION_BONUS_PER_10MIN', '5', 'integer', 'XP bonus per 10 minutes of activity duration', 'xp'),
+    ('DURATION_BONUS_MAX', '25', 'integer', 'Maximum XP bonus from activity duration', 'xp'),
+    ('BUDGET_UNDER_XP', '10', 'integer', 'XP awarded for each budget category under target', 'xp'),
+    ('DAILY_XP_CAP_DEFAULT', '200', 'integer', 'Default daily XP cap per area', 'xp'),
+    ('COMMIT_XP_MULTIPLIER', '5', 'integer', 'XP per git commit', 'xp'),
+    ('COMMIT_XP_MAX', '100', 'integer', 'Maximum XP from commits per day', 'xp'),
+    ('TASK_COMPLETE_XP', '10', 'integer', 'XP per completed task', 'xp'),
+    ('TASK_COMPLETE_XP_MAX', '100', 'integer', 'Maximum XP from tasks per day', 'xp'),
+    ('SPRINT_COMPLETE_XP', '100', 'integer', 'XP for completing an overnight sprint', 'xp'),
+    ('STREAK_FREEZE_DEFAULT', '3', 'integer', 'Default number of streak freeze tokens', 'streaks'),
+    ('LEVEL_FORMULA_VERSION', '1', 'integer', 'Current level calculation formula version', 'levels')
+ON CONFLICT (key) DO UPDATE SET
+    value = EXCLUDED.value,
+    description = EXCLUDED.description,
+    updated_at = NOW();
+
+-- Kanban columns configuration (replaces hardcoded column definitions)
+CREATE TABLE IF NOT EXISTS kanban_columns (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    title VARCHAR(100) NOT NULL,
+    label VARCHAR(200),
+    icon VARCHAR(50),
+    color VARCHAR(20),
+    wip_limit INTEGER,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Insert default kanban columns
+INSERT INTO kanban_columns (code, title, label, icon, sort_order) VALUES
+    ('backlog', 'Backlog', 'Ideas & Future Work', 'inbox', 1),
+    ('ready', 'Ready', 'Queued & Prioritized', 'list', 2),
+    ('in-progress', 'Active', 'Currently Working', 'play', 3),
+    ('review', 'Review', 'Pending Approval', 'eye', 4),
+    ('done', 'Complete', 'Finished & Shipped', 'check-circle', 5)
+ON CONFLICT (code) DO UPDATE SET
+    title = EXCLUDED.title,
+    label = EXCLUDED.label,
+    icon = EXCLUDED.icon,
+    sort_order = EXCLUDED.sort_order;
+
+-- XP calculation rules for automated dashboard XP (replaces frontend JS logic)
+CREATE TABLE IF NOT EXISTS xp_rules (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    source VARCHAR(50) NOT NULL,
+    area_code VARCHAR(20) NOT NULL REFERENCES life_areas(code),
+    rule_type VARCHAR(20) NOT NULL DEFAULT 'count',
+    condition JSONB,
+    xp_per_unit INTEGER NOT NULL DEFAULT 1,
+    max_xp INTEGER,
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Insert default XP rules
+INSERT INTO xp_rules (code, name, description, source, area_code, rule_type, condition, xp_per_unit, max_xp) VALUES
+    ('commits_today', 'Daily Commits', 'XP for git commits made today', 'git', 'work', 'count', '{"field": "commit_count"}', 5, 100),
+    ('tasks_completed', 'Tasks Completed', 'XP for completing Todoist tasks', 'todoist', 'work', 'count', '{"field": "completed_today"}', 10, 100),
+    ('sprint_complete', 'Sprint Complete', 'XP for completing an overnight sprint', 'sprint', 'work', 'boolean', '{"field": "status", "value": "completed"}', 100, 100),
+    ('health_steps', 'Steps Goal', 'XP for meeting step goal', 'health', 'health', 'threshold', '{"field": "steps", "threshold": 10000}', 25, 25),
+    ('health_exercise', 'Exercise Goal', 'XP for meeting exercise goal', 'health', 'fitness', 'threshold', '{"field": "exercise_minutes", "threshold": 30}', 30, 30),
+    ('health_stand', 'Stand Goal', 'XP for meeting stand goal', 'health', 'health', 'threshold', '{"field": "stand_hours", "threshold": 12}', 15, 15),
+    ('budget_under', 'Budget Adherence', 'XP for staying under budget', 'monzo', 'finance', 'count', '{"field": "budgets_under"}', 10, 100)
+ON CONFLICT (code) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    xp_per_unit = EXCLUDED.xp_per_unit,
+    max_xp = EXCLUDED.max_xp;
+
+CREATE INDEX IF NOT EXISTS idx_xp_rules_source ON xp_rules(source);
+CREATE INDEX IF NOT EXISTS idx_xp_rules_active ON xp_rules(active) WHERE active = TRUE;
+
+-- Priority levels configuration
+CREATE TABLE IF NOT EXISTS priority_levels (
+    id SERIAL PRIMARY KEY,
+    level INTEGER UNIQUE NOT NULL,
+    code VARCHAR(10) NOT NULL,
+    name VARCHAR(50) NOT NULL,
+    color VARCHAR(20),
+    emoji VARCHAR(10),
+    sort_order INTEGER DEFAULT 0
+);
+
+-- Insert default priority levels (Todoist/Linear style)
+INSERT INTO priority_levels (level, code, name, color, emoji, sort_order) VALUES
+    (4, 'p1', 'Urgent', '#ef4444', '🔴', 1),
+    (3, 'p2', 'High', '#f97316', '🟠', 2),
+    (2, 'p3', 'Medium', '#3b82f6', '🔵', 3),
+    (1, 'p4', 'Low', '#6b7280', '⚪', 4)
+ON CONFLICT (level) DO UPDATE SET
+    name = EXCLUDED.name,
+    color = EXCLUDED.color;
+
+-- =============================================================================
+-- Email Automation Tables
+-- =============================================================================
+
+-- Notification history for tracking all sent notifications
+CREATE TABLE IF NOT EXISTS notification_history (
+    id SERIAL PRIMARY KEY,
+    channel VARCHAR(50) NOT NULL,      -- 'telegram', 'slack'
+    source VARCHAR(50) NOT NULL,       -- 'school', 'inbox', 'combined'
+    title TEXT NOT NULL,
+    body TEXT,
+    priority VARCHAR(20) NOT NULL,     -- 'urgent', 'digest', 'info'
+    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    success BOOLEAN NOT NULL,
+    error_message TEXT,
+    message_id VARCHAR(100)            -- External message ID if available
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_history_channel ON notification_history(channel);
+CREATE INDEX IF NOT EXISTS idx_notification_history_source ON notification_history(source);
+CREATE INDEX IF NOT EXISTS idx_notification_history_sent ON notification_history(sent_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notification_history_priority ON notification_history(priority);
+
+-- Scheduled job run tracking
+CREATE TABLE IF NOT EXISTS scheduled_job_runs (
+    id SERIAL PRIMARY KEY,
+    job_id VARCHAR(100) NOT NULL,      -- 'school_email', 'inbox_digest', 'daily_combined'
+    started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+    status VARCHAR(20) NOT NULL DEFAULT 'running',  -- 'running', 'success', 'failed'
+    trigger_type VARCHAR(20),          -- 'scheduled', 'manual', 'http'
+    result JSONB,                       -- Job-specific result data
+    error_message TEXT,
+    duration_seconds DECIMAL(10,2)
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_runs_job ON scheduled_job_runs(job_id);
+CREATE INDEX IF NOT EXISTS idx_job_runs_started ON scheduled_job_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_job_runs_status ON scheduled_job_runs(status);
+
+-- Email fetch operation logs (detailed IMAP operation tracking)
+CREATE TABLE IF NOT EXISTS email_fetch_logs (
+    id SERIAL PRIMARY KEY,
+    account VARCHAR(255) NOT NULL,
+    operation VARCHAR(50) NOT NULL,      -- 'auth', 'fetch', 'error', 'timeout', etc.
+    details TEXT,
+    success BOOLEAN NOT NULL,
+    error_message TEXT,
+    logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_fetch_logs_account ON email_fetch_logs(account);
+CREATE INDEX IF NOT EXISTS idx_email_fetch_logs_time ON email_fetch_logs(logged_at DESC);
+CREATE INDEX IF NOT EXISTS idx_email_fetch_logs_success ON email_fetch_logs(success);
+
+-- Detailed inbox message cache (optional - for analytics)
+CREATE TABLE IF NOT EXISTS inbox_message_cache (
+    id SERIAL PRIMARY KEY,
+    account VARCHAR(255) NOT NULL,
+    message_id VARCHAR(255) NOT NULL,
+    subject TEXT,
+    from_name VARCHAR(255),
+    from_email VARCHAR(255),
+    date_header VARCHAR(100),
+    is_urgent BOOLEAN DEFAULT FALSE,
+    is_from_person BOOLEAN DEFAULT FALSE,
+    body_text TEXT,                       -- Full email body for processing
+    first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(account, message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbox_cache_account ON inbox_message_cache(account);
+CREATE INDEX IF NOT EXISTS idx_inbox_cache_seen ON inbox_message_cache(last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_inbox_cache_body_fts
+    ON inbox_message_cache USING gin(to_tsvector('english', body_text));
+
+-- Email attachments with extracted content
+CREATE TABLE IF NOT EXISTS email_attachments (
+    id SERIAL PRIMARY KEY,
+    account VARCHAR(255) NOT NULL,
+    message_id VARCHAR(255) NOT NULL,
+    filename VARCHAR(500) NOT NULL,
+    content_type VARCHAR(100),
+    size_bytes INTEGER,
+    extracted_text TEXT,              -- PDF/text content extracted
+    extraction_status VARCHAR(20),    -- 'success', 'failed', 'skipped'
+    extraction_error TEXT,
+    first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(account, message_id, filename)
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_account ON email_attachments(account);
+CREATE INDEX IF NOT EXISTS idx_attachments_message ON email_attachments(message_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_type ON email_attachments(content_type);
+CREATE INDEX IF NOT EXISTS idx_attachments_text ON email_attachments USING gin(to_tsvector('english', extracted_text));
