@@ -2542,6 +2542,52 @@ def award_monzo_xp():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/integrations/monzo/trends')
+def get_monzo_trends():
+    """Get spending trend data from Monzo Analysis app."""
+    import requests as req
+    
+    days = request.args.get('days', 30, type=int)
+    
+    try:
+        # Note: The Monzo API requires account_id - this will need to be configured
+        resp = req.get(
+            f'{get_monzo_api_base()}/dashboard/trends',
+            params={'days': days},
+            timeout=Defaults.API_TIMEOUT_SHORT
+        )
+        if resp.status_code == 200:
+            return jsonify(resp.json())
+        else:
+            return jsonify({'status': Status.UNAVAILABLE}), 503
+    except req.exceptions.ConnectionError:
+        return jsonify({'status': Status.OFFLINE}), 503
+    except Exception as e:
+        logger.error(f"Monzo trends error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/integrations/monzo/recurring')
+def get_monzo_recurring():
+    """Get recurring/subscription data from Monzo Analysis app."""
+    import requests as req
+    
+    try:
+        resp = req.get(
+            f'{get_monzo_api_base()}/dashboard/recurring',
+            timeout=Defaults.API_TIMEOUT_SHORT
+        )
+        if resp.status_code == 200:
+            return jsonify(resp.json())
+        else:
+            return jsonify({'status': Status.UNAVAILABLE}), 503
+    except req.exceptions.ConnectionError:
+        return jsonify({'status': Status.OFFLINE}), 503
+    except Exception as e:
+        logger.error(f"Monzo recurring error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # =============================================================================
 # Days Since API
 # =============================================================================

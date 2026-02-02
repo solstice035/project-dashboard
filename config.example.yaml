@@ -23,8 +23,74 @@ git:
 kanban:
   api_url: "http://localhost:8888/api/tasks"
 
+# Database configuration
+database:
+  name: "nick"
+  host: "localhost"
+
+# Email accounts for inbox digest (requires Gmail app passwords)
+# Generate at: Google Account → Security → 2FA → App passwords
+email:
+  accounts:
+    - email: "your-email@gmail.com"
+      name: "Main"
+      priority: "high"
+      app_password: "xxxx xxxx xxxx xxxx"  # 16-char app password from Google
+    - email: "your-other-email@gmail.com"
+      name: "Services"
+      priority: "medium"
+      app_password: "xxxx xxxx xxxx xxxx"
+
+# Integration paths
+integrations:
+  school_db: "~/clawd/data/school-automation.db"
+  health_data: "~/clawd/projects/health-analytics/dashboard/data"
+  sprint_logs: "~/obsidian/claude/1-Projects/0-Dev/01-JeeveSprints"
+  monzo_api: "http://localhost/api/v1"
+
 server:
   port: 8889
   host: "0.0.0.0"  # Allow network access
   # Auto-refresh interval in seconds
   refresh_interval: 300
+
+# =============================================================================
+# Email Automation Configuration
+# =============================================================================
+
+notifications:
+  telegram:
+    enabled: true
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "your-chat-id"
+    # Used for: URGENT notifications only (school actions with deadlines)
+
+  slack:
+    enabled: true
+    webhook_url: "${SLACK_WEBHOOK_URL}"
+    channel: "#email-digests"
+    # Used for: Digests, non-urgent summaries
+
+  # Priority-based routing configuration
+  routing:
+    urgent: ["telegram"]           # Immediate attention required
+    digest: ["slack"]              # Daily/periodic summaries
+    info: ["slack"]                # Non-urgent updates
+
+scheduling:
+  enabled: true
+  jobs:
+    school_email:
+      # Process school emails at 7am and 6pm on weekdays
+      cron: "0 7,18 * * 1-5"
+      enabled: true
+
+    inbox_digest:
+      # Generate inbox digest every 4 hours
+      interval_hours: 4
+      enabled: true
+
+    daily_combined:
+      # Send combined daily digest at 8pm
+      time: "20:00"
+      enabled: true

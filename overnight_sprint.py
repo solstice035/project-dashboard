@@ -15,9 +15,25 @@ import database as db
 
 logger = logging.getLogger(__name__)
 
-SPRINT_LOGS_PATH = Path(os.path.expanduser(
-    '~/obsidian/claude/1-Projects/0-Dev/01-JeeveSprints'
-))
+# Load config for sprint logs path
+CONFIG_PATH = Path(__file__).parent / 'config.yaml'
+DEFAULT_SPRINT_LOGS_PATH = '~/obsidian/claude/1-Projects/0-Dev/01-JeeveSprints'
+
+
+def _load_sprint_logs_path() -> Path:
+    """Load sprint logs path from config."""
+    try:
+        if CONFIG_PATH.exists():
+            with open(CONFIG_PATH) as f:
+                config = yaml.safe_load(f) or {}
+                path = config.get('integrations', {}).get('sprint_logs', DEFAULT_SPRINT_LOGS_PATH)
+                return Path(os.path.expanduser(path))
+    except Exception as e:
+        logger.warning(f"Failed to load config: {e}, using default path")
+    return Path(os.path.expanduser(DEFAULT_SPRINT_LOGS_PATH))
+
+
+SPRINT_LOGS_PATH = _load_sprint_logs_path()
 
 
 def parse_sprint_log(file_path: Path) -> dict | None:

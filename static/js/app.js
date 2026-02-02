@@ -321,6 +321,9 @@ function switchTab(tabId) {
         case 'school':
             loadSchoolTab();
             break;
+        case 'financial':
+            loadFinancialTab();
+            break;
     }
 
     refreshIcons();
@@ -3098,6 +3101,264 @@ function toggleActionExpand(actionId) {
 }
 
 // =============================================================================
+// Financial Tab
+// =============================================================================
+
+var spendingTrendChart = null;
+
+/**
+ * Load Financial tab data
+ */
+async function loadFinancialTab() {
+    try {
+        // Fetch summary data
+        var response = await fetch('/api/integrations/monzo');
+        var result = await response.json();
+
+        if (result.status === 'ok' && result.data) {
+            renderFinancialSummary(result.data);
+            showElement('financial-stats');
+            hideElement('financial-offline');
+            updateFinancialStatus('Connected to Monzo', 'ok');
+            
+            // Fetch trends
+            loadFinancialTrends();
+            loadFinancialRecurring();
+        } else {
+            showFinancialOffline(result.message || 'Service unavailable');
+        }
+    } catch (error) {
+        console.error('Financial tab error:', error);
+        showFinancialOffline('Failed to connect to Monzo service');
+    }
+}
+
+/**
+ * Render the summary stats
+ */
+function renderFinancialSummary(data) {
+    // Format amounts (values are in pence)
+    var balance = document.getElementById('financial-balance');
+    var spendToday = document.getElementById('financial-spend-today');
+    var spendMonth = document.getElementById('financial-spend-month');
+    var transactions = document.getElementById('financial-transactions');
+
+    if (balance) balance.textContent = formatMoney(data.balance);
+    if (spendToday) spendToday.textContent = formatMoney(data.spend_today);
+    if (spendMonth) spendMonth.textContent = formatMoney(data.spend_this_month);
+    if (transactions) transactions.textContent = data.transaction_count.toLocaleString();
+
+    // Render top categories
+    renderCategories(data.top_categories || []);
+}
+
+/**
+ * Format pence to pounds
+ */
+function formatMoney(pence) {
+    if (pence === undefined || pence === null) return '-';
+    var pounds = pence / 100;
+    return '£' + pounds.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Render top spending categories
+ */
+function renderCategories(categories) {
+    var container = document.getElementById('financial-categories');
+    if (!container) return;
+
+    if (!categories || categories.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-state-text">No spending data</div></div>';
+        return;
+    }
+
+    var html = '<div class="category-list">';
+    categories.forEach(function(cat) {
+        var name = (cat.category || 'general').replace(/_/g, ' ');
+        name = name.charAt(0).toUpperCase() + name.slice(1);
+        html += '<div class="category-item">';
+        html += '<span class="category-name">' + escapeHtml(name) + '</span>';
+        html += '<span class="category-amount">' + formatMoney(cat.amount) + '</span>';
+        html += '</div>';
+    });
+    html += '</div>';
+
+    container.innerHTML = html;
+}
+
+/**
+ * Load spending trends
+ */
+async function loadFinancialTrends() {
+    try {
+        // For now, use the same endpoint - the backend needs account_id
+        // This will be updated when Monzo is properly configured
+        var response = await fetch('/api/integrations/monzo/trends?days=30');
+        if (!response.ok) {
+            // Trends endpoint may not exist yet - that's ok
+            return;
+        }
+        var data = await response.json();
+        if (data.daily_spend) {
+            renderSpendingTrend(data.daily_spend);
+        }
+    } catch (error) {
+        console.log('Trends not available:', error.message);
+    }
+}
+
+/**
+ * Render spending trend chart
+ */
+function renderSpendingTrend(dailySpend) {
+    var canvas = document.getElementById('spending-trend-chart');
+    if (!canvas) return;
+
+    var ctx = canvas.getContext('2d');
+
+    // Destroy previous chart if exists
+    if (spendingTrendChart) {
+        spendingTrendChart.destroy();
+    }
+
+    var labels = dailySpend.map(function(d) {
+        return new Date(d.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    });
+    var values = dailySpend.map(function(d) { return d.amount / 100; });
+
+    spendingTrendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Daily Spend',
+                data: values,
+                borderColor: '#ef4444',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                fill: true,
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) { return '£' + value; }
+                    }
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Load recurring/subscription data
+ */
+async function loadFinancialRecurring() {
+    try {
+        var response = await fetch('/api/integrations/monzo/recurring');
+        if (!response.ok) return;
+        var data = await response.json();
+        renderSubscriptions(data);
+    } catch (error) {
+        console.log('Recurring data not available:', error.message);
+    }
+}
+
+/**
+ * Render subscriptions list
+ */
+function renderSubscriptions(data) {
+    var container = document.getElementById('financial-subscriptions');
+    var totalBadge = document.getElementById('subscriptions-total');
+    
+    if (!container) return;
+
+    var items = data.items || [];
+    
+    if (totalBadge) {
+        totalBadge.textContent = formatMoney(data.total_monthly_cost) + '/mo';
+    }
+
+    if (items.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-state-text">No recurring payments detected</div></div>';
+        return;
+    }
+
+    var html = '<div class="subscription-list">';
+    items.slice(0, 8).forEach(function(sub) {
+        html += '<div class="subscription-item">';
+        html += '<div class="subscription-info">';
+        html += '<span class="subscription-name">' + escapeHtml(sub.merchant_name) + '</span>';
+        html += '<span class="subscription-freq">' + escapeHtml(sub.frequency_label) + '</span>';
+        html += '</div>';
+        html += '<span class="subscription-amount">' + formatMoney(sub.monthly_cost) + '/mo</span>';
+        html += '</div>';
+    });
+    html += '</div>';
+
+    container.innerHTML = html;
+}
+
+/**
+ * Show offline message
+ */
+function showFinancialOffline(message) {
+    hideElement('financial-stats');
+    showElement('financial-offline');
+    updateFinancialStatus(message || 'Monzo service offline', 'error');
+    
+    // Show placeholder categories and subscriptions
+    var categories = document.getElementById('financial-categories');
+    if (categories) {
+        categories.innerHTML = '<div class="empty-state"><div class="empty-state-text">Connect Monzo to see spending</div></div>';
+    }
+    var subscriptions = document.getElementById('financial-subscriptions');
+    if (subscriptions) {
+        subscriptions.innerHTML = '<div class="empty-state"><div class="empty-state-text">Connect Monzo to see subscriptions</div></div>';
+    }
+    var budgets = document.getElementById('financial-budgets');
+    if (budgets) {
+        budgets.innerHTML = '<div class="empty-state"><div class="empty-state-text">Connect Monzo to see budgets</div></div>';
+    }
+}
+
+/**
+ * Update financial status indicator
+ */
+function updateFinancialStatus(message, status) {
+    var statusEl = document.getElementById('financial-status');
+    if (!statusEl) return;
+    
+    var iconName = status === 'ok' ? 'check-circle' : 'wifi-off';
+    statusEl.innerHTML = icon(iconName) + ' <span>' + escapeHtml(message) + '</span>';
+    statusEl.className = 'financial-status ' + (status === 'ok' ? 'status-ok' : 'status-error');
+}
+
+/**
+ * Helper to show element
+ */
+function showElement(id) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = '';
+}
+
+/**
+ * Helper to hide element
+ */
+function hideElement(id) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+}
+
+// =============================================================================
 // Initialization
 // =============================================================================
 
@@ -3168,6 +3429,9 @@ function initKeyboardShortcuts() {
         } else if (e.key === '5') {
             e.preventDefault();
             switchTab('school');
+        } else if (e.key === '6') {
+            e.preventDefault();
+            switchTab('financial');
         }
 
         // ? - Show help
@@ -3189,6 +3453,7 @@ function showKeyboardHelp() {
     content += '<div class="shortcut-row"><kbd>3</kbd> Plan tab</div>';
     content += '<div class="shortcut-row"><kbd>4</kbd> Analytics tab</div>';
     content += '<div class="shortcut-row"><kbd>5</kbd> School tab</div>';
+    content += '<div class="shortcut-row"><kbd>6</kbd> Financial tab</div>';
     content += '<div class="shortcut-row"><kbd>?</kbd> Show this help</div>';
     content += '<div class="shortcut-row"><kbd>Esc</kbd> Close modal</div>';
     content += '</div>';

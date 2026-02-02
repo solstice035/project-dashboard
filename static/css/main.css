@@ -3608,3 +3608,129 @@ kbd {
         margin-bottom: var(--space-2);
     }
 }
+
+/* =============================================================================
+   Financial Tab Styles
+   ============================================================================= */
+
+.financial-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-4);
+    background: hsl(var(--card));
+    border-radius: var(--radius);
+    margin-bottom: var(--space-6);
+    border: 1px solid hsl(var(--border));
+}
+
+.financial-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    color: hsl(var(--muted-foreground));
+}
+
+.financial-status.status-ok {
+    color: hsl(var(--success));
+}
+
+.financial-status.status-error {
+    color: hsl(var(--destructive));
+}
+
+.financial-status .icon {
+    width: 16px;
+    height: 16px;
+}
+
+/* Category list */
+.category-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.category-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+
+.category-item:last-child {
+    border-bottom: none;
+}
+
+.category-name {
+    font-size: var(--text-sm);
+    color: hsl(var(--foreground));
+}
+
+.category-amount {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: hsl(var(--destructive));
+    font-family: var(--font-mono);
+}
+
+/* Subscription list */
+.subscription-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.subscription-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+
+.subscription-item:last-child {
+    border-bottom: none;
+}
+
+.subscription-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.subscription-name {
+    font-size: var(--text-sm);
+    color: hsl(var(--foreground));
+}
+
+.subscription-freq {
+    font-size: var(--text-xs);
+    color: hsl(var(--muted-foreground));
+}
+
+.subscription-amount {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: hsl(var(--primary));
+    font-family: var(--font-mono);
+}
+
+/* Two column grid */
+.two-col {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+@media (max-width: 768px) {
+    .two-col {
+        grid-template-columns: 1fr;
+    }
+    
+    .financial-header {
+        flex-direction: column;
+        gap: var(--space-3);
+        align-items: flex-start;
+    }
+}

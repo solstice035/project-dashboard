@@ -39,6 +39,9 @@
                 <button class="tab" data-tab="school">
                     <i data-lucide="graduation-cap" class="icon"></i> School
                 </button>
+                <button class="tab" data-tab="financial">
+                    <i data-lucide="wallet" class="icon"></i> Financial
+                </button>
             </nav>
 
             <div class="header-right">
@@ -760,6 +763,102 @@
             <!-- Children Container -->
             <div id="school-children-container">
                 <div class="skeleton" style="height: 200px;"></div>
+            </div>
+        </div>
+
+        <!-- Financial Tab -->
+        <div id="tab-financial" class="tab-content">
+            <!-- Financial Header -->
+            <div class="financial-header">
+                <div class="financial-status" id="financial-status">
+                    <i data-lucide="wallet" class="icon"></i>
+                    <span>Connecting to Monzo...</span>
+                </div>
+                <a href="http://localhost:5173" target="_blank" class="btn-secondary btn-sm" title="Open full Monzo dashboard">
+                    <i data-lucide="external-link" class="icon"></i> Full Dashboard
+                </a>
+            </div>
+
+            <!-- Summary Stats Row -->
+            <div class="stat-grid" id="financial-stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="financial-balance">-</div>
+                    <div class="stat-label">Balance</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="financial-spend-today">-</div>
+                    <div class="stat-label">Spent Today</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="financial-spend-month">-</div>
+                    <div class="stat-label">This Month</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="financial-transactions">-</div>
+                    <div class="stat-label">Transactions</div>
+                </div>
+            </div>
+
+            <div class="dashboard-grid two-col">
+                <!-- Spending Trend -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="trending-down" class="icon"></i> Spending Trend</span>
+                        <span class="card-badge">Last 30 days</span>
+                    </div>
+                    <div class="card-content">
+                        <div style="height: 200px;">
+                            <canvas id="spending-trend-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top Categories -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="pie-chart" class="icon"></i> Top Categories</span>
+                    </div>
+                    <div class="card-content" id="financial-categories">
+                        <div class="skeleton"></div>
+                    </div>
+                </div>
+
+                <!-- Recurring/Subscriptions -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="repeat" class="icon"></i> Subscriptions</span>
+                        <span class="card-badge" id="subscriptions-total">-/mo</span>
+                    </div>
+                    <div class="card-content" id="financial-subscriptions">
+                        <div class="skeleton"></div>
+                    </div>
+                </div>
+
+                <!-- Budget Status -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="target" class="icon"></i> Budget Status</span>
+                    </div>
+                    <div class="card-content" id="financial-budgets">
+                        <div class="skeleton"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Offline Message -->
+            <div class="card" id="financial-offline" style="display: none;">
+                <div class="card-content">
+                    <div class="empty-state">
+                        <div class="empty-state-icon"><i data-lucide="wifi-off" class="icon"></i></div>
+                        <div class="empty-state-text">Monzo service is not running</div>
+                        <div class="empty-state-hint">
+                            The Monzo analysis backend needs to be started.<br>
+                            <code style="font-size: 0.8rem; background: var(--bg-secondary); padding: 0.5rem; border-radius: 4px; display: inline-block; margin-top: 0.5rem;">
+                                cd ~/dev/dashboards/monzo-analysis && docker compose up -d
+                            </code>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
