@@ -36,6 +36,9 @@
                 <button class="tab" data-tab="analytics">
                     <i data-lucide="trending-up" class="icon"></i> Analytics
                 </button>
+                <button class="tab" data-tab="school">
+                    <i data-lucide="graduation-cap" class="icon"></i> School
+                </button>
             </nav>
 
             <div class="header-right">
@@ -724,6 +727,39 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- School Tab -->
+        <div id="tab-school" class="tab-content">
+            <!-- Processing Status Bar -->
+            <div class="school-status-bar">
+                <div class="school-status-info">
+                    <i data-lucide="clock" class="icon"></i>
+                    <span>Last processed: <span id="school-last-run">--</span></span>
+                    <span class="school-status-divider">•</span>
+                    <span id="school-actions-count">-- actions</span>
+                </div>
+                <button class="btn-secondary btn-sm" onclick="refreshSchoolTab()">
+                    <i data-lucide="refresh-cw" class="icon"></i> Refresh
+                </button>
+            </div>
+
+            <!-- Summary Stats -->
+            <div class="school-summary-stats" id="school-summary-stats">
+                <div class="school-stat">
+                    <span class="school-stat-value" id="school-total-actions">-</span>
+                    <span class="school-stat-label">Total Actions</span>
+                </div>
+                <div class="school-stat urgency-high">
+                    <span class="school-stat-value" id="school-high-count">-</span>
+                    <span class="school-stat-label">High Priority</span>
+                </div>
+            </div>
+
+            <!-- Children Container -->
+            <div id="school-children-container">
+                <div class="skeleton" style="height: 200px;"></div>
             </div>
         </div>
     </div>

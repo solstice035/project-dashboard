@@ -318,6 +318,9 @@ function switchTab(tabId) {
         case 'analytics':
             loadAnalytics();
             break;
+        case 'school':
+            loadSchoolTab();
+            break;
     }
 
     refreshIcons();
@@ -2801,6 +2804,300 @@ async function showAllAchievements() {
 }
 
 // =============================================================================
+// School Tab
+// =============================================================================
+
+/**
+ * Global state for school tab
+ */
+var schoolTabData = null;
+var expandedChildren = {};
+var expandedActions = {};
+
+/**
+ * Load school tab data from API
+ */
+async function loadSchoolTab() {
+    var container = document.getElementById('school-children-container');
+    if (!container) return;
+
+    container.innerHTML = '<div class="skeleton" style="height: 200px;"></div>';
+
+    try {
+        var response = await fetch('/api/school/tab');
+        schoolTabData = await response.json();
+        renderSchoolTab(schoolTabData);
+    } catch (error) {
+        console.error('School tab error:', error);
+        container.innerHTML = '<div class="error-message">' + icon('alert-circle') + ' Failed to load school data</div>';
+        refreshIcons();
+    }
+}
+
+/**
+ * Refresh school tab data
+ */
+function refreshSchoolTab() {
+    loadSchoolTab();
+    showToast('Refreshing school data...', 'info', 2000);
+}
+
+/**
+ * Render the full school tab - all user content is escaped via escapeHtml()
+ */
+function renderSchoolTab(data) {
+    var container = document.getElementById('school-children-container');
+    if (!container) return;
+
+    // Handle not configured
+    if (data.status === 'not_configured') {
+        container.innerHTML = '<div class="school-empty-state">' +
+            '<div class="empty-state-icon">' + icon('graduation-cap') + '</div>' +
+            '<div class="empty-state-text">School automation not set up</div>' +
+            '<div class="empty-state-hint">Run school-email-processor to get started</div>' +
+            '</div>';
+        refreshIcons();
+        return;
+    }
+
+    // Handle error
+    if (data.status === 'error') {
+        container.innerHTML = '<div class="error-message">' + icon('alert-circle') + ' ' + escapeHtml(data.error) + '</div>';
+        refreshIcons();
+        return;
+    }
+
+    // Update status bar
+    updateSchoolStatus(data.processing_status);
+
+    // Update summary stats
+    var totalEl = document.getElementById('school-total-actions');
+    var highEl = document.getElementById('school-high-count');
+    if (totalEl) totalEl.textContent = data.totals.total;
+    if (highEl) highEl.textContent = data.totals.high;
+
+    // Render children sections
+    var html = '';
+    var children = data.children || [];
+
+    if (children.length === 0 || data.totals.total === 0) {
+        html = '<div class="school-empty-state">' +
+            '<div class="empty-state-icon">' + icon('check-circle') + '</div>' +
+            '<div class="empty-state-text">All clear!</div>' +
+            '<div class="empty-state-hint">No pending school actions</div>' +
+            '</div>';
+    } else {
+        children.forEach(function(child) {
+            html += renderChildSection(child);
+        });
+    }
+
+    container.innerHTML = html;
+    refreshIcons();
+}
+
+/**
+ * Update the processing status bar
+ */
+function updateSchoolStatus(status) {
+    var lastRunEl = document.getElementById('school-last-run');
+    var actionsCountEl = document.getElementById('school-actions-count');
+
+    if (!status) {
+        if (lastRunEl) lastRunEl.textContent = 'Never';
+        if (actionsCountEl) actionsCountEl.textContent = '0 actions';
+        return;
+    }
+
+    if (lastRunEl) {
+        lastRunEl.textContent = status.last_run_relative || 'Unknown';
+    }
+    if (actionsCountEl) {
+        actionsCountEl.textContent = status.actions_extracted + ' actions extracted';
+    }
+}
+
+/**
+ * Render a collapsible child section - all user content is escaped
+ */
+function renderChildSection(child) {
+    var isExpanded = expandedChildren[child.name] !== false; // Default to expanded
+    var summary = child.summary || {};
+    var actions = child.actions || [];
+
+    var headerClass = 'school-child-header' + (isExpanded ? ' expanded' : '');
+    var contentClass = 'school-child-content' + (isExpanded ? '' : ' collapsed');
+
+    // Build badges
+    var badges = '';
+    if (summary.high > 0) {
+        badges += '<span class="school-badge urgency-high">' + summary.high + ' high</span>';
+    }
+    if (summary.medium > 0) {
+        badges += '<span class="school-badge urgency-medium">' + summary.medium + ' medium</span>';
+    }
+    if (summary.low > 0) {
+        badges += '<span class="school-badge urgency-low">' + summary.low + ' low</span>';
+    }
+
+    var html = '<div class="school-child-section" data-child="' + escapeHtml(child.name) + '">';
+
+    // Header
+    html += '<div class="' + headerClass + '" onclick="toggleChildSection(\'' + escapeHtml(child.name) + '\')">';
+    html += '<div class="school-child-title">';
+    html += icon('user') + ' <span>' + escapeHtml(child.name) + '</span>';
+    html += '<span class="school-child-count">(' + summary.total + ')</span>';
+    html += '</div>';
+    html += '<div class="school-child-badges">' + badges + '</div>';
+    html += icon(isExpanded ? 'chevron-up' : 'chevron-down', 'collapse-icon');
+    html += '</div>';
+
+    // Content
+    html += '<div class="' + contentClass + '">';
+
+    if (actions.length === 0) {
+        html += '<div class="school-child-empty">' + icon('check-circle') + ' No pending actions</div>';
+    } else {
+        actions.forEach(function(action) {
+            html += renderActionCard(action, child.name);
+        });
+    }
+
+    html += '</div></div>';
+
+    return html;
+}
+
+/**
+ * Render an action card - all user content is escaped
+ */
+function renderActionCard(action, childName) {
+    var isExpanded = expandedActions[action.id] || false;
+    var cardClass = 'school-action-card urgency-' + (action.urgency || 'low').toLowerCase();
+    if (isExpanded) cardClass += ' expanded';
+
+    var typeIcon = getActionTypeIcon(action.type);
+
+    var html = '<div class="' + cardClass + '" data-action-id="' + escapeHtml(action.id) + '" onclick="toggleActionExpand(\'' + escapeHtml(action.id) + '\')">';
+
+    // Card header
+    html += '<div class="school-action-header">';
+    html += '<div class="school-action-type">' + icon(typeIcon) + '</div>';
+    html += '<div class="school-action-info">';
+    html += '<div class="school-action-description">' + escapeHtml(action.description || 'Action') + '</div>';
+    if (action.deadline_relative) {
+        html += '<div class="school-action-deadline">' + icon('calendar') + ' ' + escapeHtml(action.deadline_relative) + '</div>';
+    }
+    html += '</div>';
+    html += '<div class="school-action-urgency-badge ' + getUrgencyClass(action.urgency) + '">' + escapeHtml(action.urgency || 'LOW') + '</div>';
+    html += '</div>';
+
+    // Expandable details
+    html += '<div class="school-action-details">';
+    if (action.source_email && action.source_email.subject) {
+        html += '<div class="school-action-source">';
+        html += '<span class="school-action-source-label">' + icon('mail') + ' Source:</span>';
+        html += '<span class="school-action-source-text">' + escapeHtml(action.source_email.subject) + '</span>';
+        html += '</div>';
+    }
+    if (action.source_text) {
+        html += '<div class="school-action-excerpt">' + escapeHtml(action.source_text.substring(0, 150)) + (action.source_text.length > 150 ? '...' : '') + '</div>';
+    }
+
+    // Status indicators
+    html += '<div class="school-action-status">';
+    if (action.todoist_task_id) {
+        html += '<span class="school-action-status-badge synced">' + icon('check') + ' Todoist</span>';
+    }
+    if (action.calendar_event_id) {
+        html += '<span class="school-action-status-badge synced">' + icon('check') + ' Calendar</span>';
+    }
+    if (!action.todoist_task_id && !action.calendar_event_id) {
+        html += '<span class="school-action-status-badge pending">' + icon('clock') + ' Pending sync</span>';
+    }
+    html += '</div>';
+    html += '</div>';
+
+    html += '</div>';
+
+    return html;
+}
+
+/**
+ * Get urgency CSS class
+ */
+function getUrgencyClass(urgency) {
+    switch ((urgency || '').toUpperCase()) {
+        case 'HIGH': return 'urgency-high';
+        case 'MEDIUM': return 'urgency-medium';
+        case 'LOW': return 'urgency-low';
+        default: return 'urgency-info';
+    }
+}
+
+/**
+ * Get icon for action type
+ */
+function getActionTypeIcon(type) {
+    switch ((type || '').toUpperCase()) {
+        case 'FORM': return 'file-text';
+        case 'EVENT': return 'calendar';
+        case 'PAYMENT': return 'credit-card';
+        case 'REMINDER': return 'bell';
+        case 'NOTIFICATION': return 'info';
+        default: return 'clipboard-list';
+    }
+}
+
+/**
+ * Toggle child section expand/collapse
+ */
+function toggleChildSection(childName) {
+    expandedChildren[childName] = expandedChildren[childName] === false;
+
+    var section = document.querySelector('.school-child-section[data-child="' + childName + '"]');
+    if (!section) return;
+
+    var header = section.querySelector('.school-child-header');
+    var content = section.querySelector('.school-child-content');
+    var chevron = header.querySelector('.collapse-icon');
+
+    if (expandedChildren[childName]) {
+        header.classList.add('expanded');
+        content.classList.remove('collapsed');
+        if (chevron) {
+            chevron.setAttribute('data-lucide', 'chevron-up');
+        }
+    } else {
+        header.classList.remove('expanded');
+        content.classList.add('collapsed');
+        if (chevron) {
+            chevron.setAttribute('data-lucide', 'chevron-down');
+        }
+    }
+
+    refreshIcons();
+}
+
+/**
+ * Toggle action card expand/collapse
+ */
+function toggleActionExpand(actionId) {
+    event.stopPropagation();
+
+    expandedActions[actionId] = !expandedActions[actionId];
+
+    var card = document.querySelector('.school-action-card[data-action-id="' + actionId + '"]');
+    if (!card) return;
+
+    if (expandedActions[actionId]) {
+        card.classList.add('expanded');
+    } else {
+        card.classList.remove('expanded');
+    }
+}
+
+// =============================================================================
 // Initialization
 // =============================================================================
 
@@ -2868,8 +3165,11 @@ function initKeyboardShortcuts() {
         } else if (e.key === '4') {
             e.preventDefault();
             switchTab('analytics');
+        } else if (e.key === '5') {
+            e.preventDefault();
+            switchTab('school');
         }
-        
+
         // ? - Show help
         if (e.key === '?') {
             e.preventDefault();
@@ -2888,6 +3188,7 @@ function showKeyboardHelp() {
     content += '<div class="shortcut-row"><kbd>2</kbd> Life tab</div>';
     content += '<div class="shortcut-row"><kbd>3</kbd> Plan tab</div>';
     content += '<div class="shortcut-row"><kbd>4</kbd> Analytics tab</div>';
+    content += '<div class="shortcut-row"><kbd>5</kbd> School tab</div>';
     content += '<div class="shortcut-row"><kbd>?</kbd> Show this help</div>';
     content += '<div class="shortcut-row"><kbd>Esc</kbd> Close modal</div>';
     content += '</div>';

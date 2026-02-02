@@ -180,26 +180,26 @@ class TestKanbanFetcher:
         # Should return error or ok (if real DB works), but test the fallback logic
         assert result['status'] in ['ok', 'error']
     
-    @patch('server.config')
-    @patch('requests.get')
-    def test_kanban_api_success_no_fallback(self, mock_get, mock_config):
-        """Should use API when available, not fallback."""
-        mock_config.__getitem__ = MagicMock(return_value={
-            'api_url': 'http://localhost:8888/api/tasks'
-        })
-        
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=MagicMock(return_value=[
-                {'id': 1, 'title': 'API Task', 'column': 'ready'}
-            ])
-        )
-        mock_get.return_value.raise_for_status = MagicMock()
-        
+    @patch('server.DB_AVAILABLE', True)
+    @patch('server.db.get_connection')
+    def test_kanban_database_source(self, mock_get_connection):
+        """Should use database as source for kanban tasks."""
+        # Mock the database connection context manager
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [
+            {'id': 1, 'title': 'DB Task', 'column': 'ready', 'description': None,
+             'tags': [], 'priority': 2, 'position': 0, 'created_at': None, 'updated_at': None}
+        ]
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_get_connection.return_value = mock_conn
+
         result = fetch_kanban()
-        
+
         assert result['status'] == 'ok'
-        assert result.get('source', 'api') == 'api'
+        assert result.get('source') == 'database'
 
 
 class TestConfigEndpoint:
@@ -210,15 +210,68 @@ class TestConfigEndpoint:
         response = client.get('/api/config')
         assert response.status_code == 200
         data = json.loads(response.data)
-        
+
         assert 'todoist' in data
         assert 'linear' in data
         assert 'git' in data
         assert 'kanban' in data
-        
+
         # Should not expose actual secrets
         assert 'token' not in str(data)
         assert 'api_key' not in str(data)
+
+
+class TestSchoolTabEndpoint:
+    """Tests for /api/school/tab endpoint."""
+
+    def test_school_tab_returns_structure(self, client):
+        """School tab endpoint should return expected structure."""
+        response = client.get('/api/school/tab')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+
+        # Should always have these fields
+        assert 'status' in data
+        assert 'children' in data
+        assert 'totals' in data
+
+        # Status should be ok or not_configured
+        assert data['status'] in ['ok', 'not_configured', 'error']
+
+    def test_school_tab_not_configured(self, client):
+        """Should return not_configured when database doesn't exist."""
+        with patch('server.get_school_db', return_value=None):
+            response = client.get('/api/school/tab')
+            assert response.status_code == 200
+            data = json.loads(response.data)
+
+            assert data['status'] == 'not_configured'
+            assert data['children'] == []
+            assert data['totals']['total'] == 0
+
+    def test_school_tab_children_structure(self, client):
+        """Children should have correct structure when data exists."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        # Mock fetchall to return empty results
+        mock_cursor.fetchall.return_value = []
+        mock_cursor.fetchone.return_value = {'last_run': None, 'count': 0}
+
+        with patch('server.get_school_db', return_value=mock_conn):
+            response = client.get('/api/school/tab')
+            assert response.status_code == 200
+            data = json.loads(response.data)
+
+            assert data['status'] == 'ok'
+            assert len(data['children']) == 3
+
+            for child in data['children']:
+                assert 'name' in child
+                assert 'actions' in child
+                assert 'summary' in child
+                assert child['name'] in ['Elodie', 'Nathaniel', 'Florence']
 
 
 if __name__ == '__main__':
