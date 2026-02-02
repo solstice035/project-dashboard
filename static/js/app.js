@@ -19,8 +19,7 @@ let selectedSprintId = null;
 // Planning state
 let planSessionId = null;
 let planSocket = null;
-const DEFAULT_GATEWAY_TOKEN = 'f2f8d0074aa8f2bf972bfa072ebdb45cb54d00fd8337f3a7';
-let gatewayToken = localStorage.getItem('gateway_token') || DEFAULT_GATEWAY_TOKEN;
+let gatewayToken = localStorage.getItem('gateway_token') || '';
 let currentAssistantMessage = null;
 
 // Attention badge state
@@ -83,6 +82,83 @@ function formatDate(dateStr) {
     if (!dateStr) return '';
     const date = new Date(dateStr);
     return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+// =============================================================================
+// Toast Notification System
+// =============================================================================
+
+/**
+ * Show a toast notification
+ * @param {string} message - The message to display
+ * @param {string} type - Type: 'info', 'success', 'error', 'warning'
+ * @param {number} duration - Duration in ms (0 for persistent)
+ */
+function showToast(message, type, duration) {
+    type = type || 'info';
+    duration = duration !== undefined ? duration : 4000;
+
+    var container = document.getElementById('toast-container');
+    if (!container) return;
+
+    var toast = document.createElement('div');
+    toast.className = 'toast toast-' + type;
+
+    var iconName = {
+        success: 'check-circle',
+        error: 'x-circle',
+        warning: 'alert-triangle',
+        info: 'info'
+    }[type] || 'info';
+
+    var iconEl = document.createElement('i');
+    iconEl.setAttribute('data-lucide', iconName);
+    iconEl.className = 'toast-icon';
+
+    var content = document.createElement('span');
+    content.className = 'toast-content';
+    content.textContent = message;
+
+    var closeIcon = document.createElement('i');
+    closeIcon.setAttribute('data-lucide', 'x');
+
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'toast-close';
+    closeBtn.appendChild(closeIcon);
+    closeBtn.onclick = function() { dismissToast(toast); };
+
+    toast.appendChild(iconEl);
+    toast.appendChild(content);
+    toast.appendChild(closeBtn);
+    container.appendChild(toast);
+
+    // Initialize Lucide icons within toast
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons({ nodes: [toast] });
+    }
+
+    // Trigger animation
+    requestAnimationFrame(function() {
+        toast.classList.add('show');
+    });
+
+    if (duration > 0) {
+        setTimeout(function() { dismissToast(toast); }, duration);
+    }
+
+    return toast;
+}
+
+/**
+ * Dismiss a toast notification
+ */
+function dismissToast(toast) {
+    toast.classList.remove('show');
+    setTimeout(function() {
+        if (toast.parentNode) {
+            toast.remove();
+        }
+    }, 300);
 }
 
 // =============================================================================
@@ -325,6 +401,12 @@ async function refreshAll() {
         
         // Sync XP from dashboard activity
         syncXpFromDashboard();
+        
+        // Fetch inbox digest (separate async call)
+        fetchAndRenderInbox();
+        
+        // Fetch school email summary
+        fetchAndRenderSchool();
 
     } catch (error) {
         console.error('Error:', error);
@@ -487,7 +569,7 @@ function renderTodoist(data) {
         var priorityClass = getPriorityClass(task.priority);
         var dueClass = task.is_overdue ? 'overdue' : task.is_today ? 'today' : '';
 
-        html += '<div class="' + cls + '" onclick="openTaskModal(\'' + task.id + '\')">';
+        html += '<div class="' + cls + '" onclick="openTaskModal(\'' + escapeHtml(String(task.id)) + '\')">';
         html += '<div class="item-header">';
         html += '<span class="item-priority ' + priorityClass + '"></span>';
         html += '<div class="item-title">' + escapeHtml(task.content) + '</div>';
@@ -545,14 +627,14 @@ function renderKanban(data) {
     if (inProgress.length) {
         html += '<div class="context-section-title">' + icon('play-circle') + ' In Progress</div>';
         inProgress.slice(0, 3).forEach(function(t) {
-            html += '<div class="item item-active" onclick="openKanbanModal(\'' + t.id + '\')">';
+            html += '<div class="item item-active" onclick="openKanbanModal(\'' + escapeHtml(String(t.id)) + '\')">';
             html += '<div class="item-title">' + escapeHtml(t.title) + '</div></div>';
         });
     }
     if (ready.length) {
         html += '<div class="context-section-title" style="margin-top: var(--spacing-md);">' + icon('circle') + ' Ready</div>';
         ready.slice(0, 2).forEach(function(t) {
-            html += '<div class="item" onclick="openKanbanModal(\'' + t.id + '\')">';
+            html += '<div class="item" onclick="openKanbanModal(\'' + escapeHtml(String(t.id)) + '\')">';
             html += '<div class="item-title">' + escapeHtml(t.title) + '</div></div>';
         });
     }
@@ -601,7 +683,7 @@ function renderLinear(data) {
         var cls = issue.state_type === 'started' ? 'item item-active' : 'item';
         var priorityClass = getPriorityClass(issue.priority);
 
-        html += '<div class="' + cls + '" onclick="openLinearModal(\'' + issue.id + '\')">';
+        html += '<div class="' + cls + '" onclick="openLinearModal(\'' + escapeHtml(String(issue.id)) + '\')">';
         html += '<div class="item-header">';
         html += '<span class="item-priority ' + priorityClass + '"></span>';
         html += '<div class="item-title">' + escapeHtml(issue.identifier) + ' ' + escapeHtml(issue.title) + '</div>';
@@ -620,6 +702,239 @@ function renderLinear(data) {
 
     content.innerHTML = html;
     refreshIcons();
+}
+
+/**
+ * Fetch and render inbox digest
+ */
+async function fetchAndRenderInbox() {
+    var content = document.getElementById('inbox-content');
+    var count = document.getElementById('inbox-count');
+    if (!content) return;
+
+    content.innerHTML = '<div class="skeleton"></div>';
+
+    try {
+        var response = await fetch('/api/inbox/digest');
+        var data = await response.json();
+        renderInbox(data);
+    } catch (error) {
+        console.error('Inbox fetch error:', error);
+        content.innerHTML = '<div class="error-message">' + icon('alert-circle') + ' Failed to load inbox</div>';
+        if (count) count.textContent = '!';
+        refreshIcons();
+    }
+}
+
+/**
+ * Render inbox digest - all user content is escaped
+ */
+function renderInbox(data) {
+    var content = document.getElementById('inbox-content');
+    var count = document.getElementById('inbox-count');
+    if (!content) return;
+
+    if (!data.accounts || !data.accounts.length) {
+        content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">' + icon('mail') + '</div><div class="empty-state-text">No email accounts configured</div></div>';
+        if (count) count.textContent = '-';
+        refreshIcons();
+        return;
+    }
+
+    var totalUnread = data.summary ? data.summary.total_unread : 0;
+    var totalUrgent = data.summary ? data.summary.total_urgent : 0;
+
+    if (count) {
+        if (totalUrgent > 0) {
+            count.textContent = totalUrgent + ' urgent';
+            count.classList.add('urgent');
+        } else {
+            count.textContent = totalUnread + ' unread';
+            count.classList.remove('urgent');
+        }
+    }
+
+    var html = '';
+
+    data.accounts.forEach(function(account) {
+        var statusIcon = account.status === 'ok' ? 'check-circle' : (account.status === 'timeout' ? 'clock' : 'alert-circle');
+        var statusClass = account.status === 'ok' ? 'ok' : 'warning';
+
+        html += '<div class="inbox-account">';
+        html += '<div class="inbox-account-header">';
+        html += '<span class="inbox-account-name">' + icon('mail') + ' ' + escapeHtml(account.name || account.account) + '</span>';
+        html += '<span class="inbox-account-count ' + statusClass + '">' + (account.total_unread || 0) + '</span>';
+        html += '</div>';
+
+        if (account.status !== 'ok') {
+            html += '<div class="inbox-error">' + icon(statusIcon) + ' ' + escapeHtml(account.error || account.status) + '</div>';
+        } else {
+            // Urgent items
+            if (account.urgent && account.urgent.length > 0) {
+                html += '<div class="inbox-section urgent">';
+                html += '<span class="inbox-label">' + icon('alert-circle') + ' Urgent</span>';
+                account.urgent.slice(0, 3).forEach(function(msg) {
+                    html += '<div class="inbox-item">';
+                    html += '<span class="inbox-from">' + escapeHtml(msg.from) + '</span>';
+                    html += '<span class="inbox-subject">' + escapeHtml(msg.subject) + '</span>';
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+
+            // From people (if no urgent, show these)
+            if ((!account.urgent || account.urgent.length === 0) && account.from_people && account.from_people.length > 0) {
+                html += '<div class="inbox-section">';
+                html += '<span class="inbox-label">' + icon('user') + ' From People</span>';
+                account.from_people.slice(0, 3).forEach(function(msg) {
+                    html += '<div class="inbox-item">';
+                    html += '<span class="inbox-from">' + escapeHtml(msg.from) + '</span>';
+                    html += '<span class="inbox-subject">' + escapeHtml(msg.subject) + '</span>';
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+
+            // Newsletter count
+            if (account.newsletters > 0) {
+                html += '<div class="inbox-newsletters">' + icon('newspaper') + ' ' + account.newsletters + ' newsletters</div>';
+            }
+        }
+
+        html += '</div>';
+    });
+
+    content.innerHTML = html;
+    refreshIcons();
+}
+
+/**
+ * Fetch and render school email summary
+ */
+async function fetchAndRenderSchool() {
+    var content = document.getElementById('school-content');
+    var count = document.getElementById('school-count');
+    if (!content) return;
+
+    content.innerHTML = '<div class="skeleton"></div>';
+
+    try {
+        var response = await fetch('/api/school/summary');
+        var data = await response.json();
+        renderSchool(data);
+    } catch (error) {
+        console.error('School fetch error:', error);
+        content.innerHTML = '<div class="error-message">' + icon('alert-circle') + ' Failed to load school data</div>';
+        if (count) count.textContent = '!';
+        refreshIcons();
+    }
+}
+
+/**
+ * Render school email summary - all user content is escaped
+ */
+function renderSchool(data) {
+    var content = document.getElementById('school-content');
+    var count = document.getElementById('school-count');
+    if (!content) return;
+
+    if (data.status === 'not_configured') {
+        content.innerHTML = '<div class="setup-prompt">' + icon('info') + ' School automation not set up yet</div>';
+        if (count) count.textContent = '-';
+        refreshIcons();
+        return;
+    }
+
+    if (data.status === 'error') {
+        content.innerHTML = '<div class="error-message">' + icon('alert-circle') + ' ' + escapeHtml(data.error) + '</div>';
+        if (count) count.textContent = '!';
+        refreshIcons();
+        return;
+    }
+
+    var summary = data.summary || {};
+    var byChild = data.by_child || {};
+    var byUrgency = data.by_urgency || {};
+    var recentEmails = data.recent_emails || [];
+
+    // Set badge
+    var pendingActions = summary.pending_actions || 0;
+    var highUrgency = byUrgency['HIGH'] || 0;
+    
+    if (count) {
+        if (highUrgency > 0) {
+            count.textContent = highUrgency + ' urgent';
+            count.classList.add('urgent');
+        } else if (pendingActions > 0) {
+            count.textContent = pendingActions + ' pending';
+            count.classList.remove('urgent');
+        } else {
+            count.textContent = summary.recent_email_count || 0;
+            count.classList.remove('urgent');
+        }
+    }
+
+    var html = '';
+
+    // Children summary
+    html += '<div class="school-children">';
+    var children = summary.children || ['Elodie', 'Nathaniel', 'Florence'];
+    children.forEach(function(child) {
+        var childData = byChild[child] || {emails: 0, actions: 0};
+        html += '<div class="school-child">';
+        html += '<span class="school-child-name">' + icon('user') + ' ' + escapeHtml(child) + '</span>';
+        html += '<span class="school-child-stats">' + childData.emails + ' emails, ' + childData.actions + ' actions</span>';
+        html += '</div>';
+    });
+    html += '</div>';
+
+    // Urgency breakdown
+    if (Object.keys(byUrgency).length > 0) {
+        html += '<div class="school-urgency">';
+        var urgencyColors = {'HIGH': 'urgent', 'MEDIUM': 'warning', 'LOW': 'info', 'INFO': 'muted'};
+        for (var urg in byUrgency) {
+            html += '<span class="school-urgency-badge ' + (urgencyColors[urg] || '') + '">' + urg + ': ' + byUrgency[urg] + '</span>';
+        }
+        html += '</div>';
+    }
+
+    // Recent emails (last 3)
+    if (recentEmails.length > 0) {
+        html += '<div class="school-recent">';
+        html += '<span class="inbox-label">' + icon('mail') + ' Recent</span>';
+        recentEmails.slice(0, 3).forEach(function(email) {
+            html += '<div class="school-email">';
+            html += '<span class="school-email-child">' + escapeHtml(email.child || '?') + '</span>';
+            html += '<span class="school-email-subject">' + escapeHtml((email.subject || '').substring(0, 40)) + '</span>';
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+
+    // Process button
+    html += '<div class="school-actions">';
+    html += '<button class="btn-secondary btn-sm" onclick="triggerSchoolProcess()">' + icon('refresh-cw') + ' Process New</button>';
+    html += '</div>';
+
+    content.innerHTML = html;
+    refreshIcons();
+}
+
+/**
+ * Trigger school email processing
+ */
+async function triggerSchoolProcess() {
+    try {
+        var response = await fetch('/api/school/process', {method: 'POST'});
+        var data = await response.json();
+        if (data.status === 'started') {
+            showToast('School email processing started', 'success');
+        } else {
+            showToast('Failed to start: ' + (data.error || 'unknown'), 'error');
+        }
+    } catch (error) {
+        showToast('Failed to trigger processing', 'error');
+    }
 }
 
 // =============================================================================
@@ -1924,20 +2239,24 @@ async function loadLifeDashboard() {
  */
 function renderLifeHeader() {
     if (!lifeData) return;
-    
+
     var levelEl = document.getElementById('life-level');
     var titleEl = document.getElementById('life-title');
     var xpEl = document.getElementById('life-xp');
     var progressFill = document.getElementById('xp-progress-fill');
     var progressText = document.getElementById('xp-progress-text');
     var todayXp = document.getElementById('today-xp');
-    
+    var lifePulseXp = document.getElementById('life-pulse-xp');
+
     if (levelEl) levelEl.textContent = 'Lv ' + lifeData.level;
     if (titleEl) titleEl.textContent = lifeData.level_title;
     if (xpEl) xpEl.textContent = lifeData.total_xp.toLocaleString() + ' XP';
     if (progressFill) progressFill.style.width = lifeData.level_progress + '%';
     if (progressText) progressText.textContent = lifeData.xp_to_next.toLocaleString() + ' XP to next level';
     if (todayXp) todayXp.textContent = '+' + lifeData.today_xp;
+
+    // Update Life Pulse widget in header
+    if (lifePulseXp) lifePulseXp.textContent = '+' + lifeData.today_xp;
 }
 
 /**

@@ -11,6 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link rel="stylesheet" href="/static/css/main.css">
+    <link rel="stylesheet" href="/static/css/kanban.css">
 </head>
 <body data-theme="dark">
     <!-- Sticky Top Bar -->
@@ -22,6 +23,9 @@
             <nav class="tabs">
                 <button class="tab active" data-tab="command-center">
                     <i data-lucide="layout-dashboard" class="icon"></i> Command
+                </button>
+                <button class="tab" data-tab="kanban">
+                    <i data-lucide="kanban" class="icon"></i> Kanban
                 </button>
                 <button class="tab" data-tab="life">
                     <i data-lucide="heart" class="icon"></i> Life
@@ -35,6 +39,12 @@
             </nav>
 
             <div class="header-right">
+                <!-- Life Pulse Widget -->
+                <div class="life-pulse" onclick="switchTab('life')" title="XP earned today">
+                    <span class="life-pulse-xp" id="life-pulse-xp">+0</span>
+                    <span class="life-pulse-label">XP today</span>
+                </div>
+
                 <!-- Needs Attention Badge -->
                 <div id="attention-badge" class="attention-badge hidden">
                     <i data-lucide="alert-triangle" class="icon"></i>
@@ -139,8 +149,8 @@
                 </div>
             </div>
 
-            <!-- Secondary Row: Ready Items + Activity -->
-            <div class="dashboard-grid">
+            <!-- Secondary Row: Ready Items + Activity + Inbox -->
+            <div class="dashboard-grid three-col">
                 <!-- Ready / Next Up -->
                 <div class="card" id="ready-card">
                     <div class="card-header">
@@ -157,6 +167,15 @@
                     </div>
                     <div class="card-content" id="activity-content"><div class="skeleton"></div></div>
                 </div>
+
+                <!-- Inbox Digest -->
+                <div class="card" id="inbox-card">
+                    <div class="card-header">
+                        <span class="card-title"><i data-lucide="mail" class="icon"></i> Inbox</span>
+                        <span class="card-badge" id="inbox-count">-</span>
+                    </div>
+                    <div class="card-content" id="inbox-content"><div class="skeleton"></div></div>
+                </div>
             </div>
 
             <!-- Collapsed Repository Health -->
@@ -169,6 +188,15 @@
                     </div>
                 </div>
                 <div class="card-content collapsed" id="git-content"><div class="skeleton"></div></div>
+            </div>
+
+            <!-- School Email Card -->
+            <div class="card" id="school-card">
+                <div class="card-header">
+                    <span class="card-title"><i data-lucide="graduation-cap" class="icon"></i> School Emails</span>
+                    <span class="card-badge" id="school-count">-</span>
+                </div>
+                <div class="card-content" id="school-content"><div class="skeleton"></div></div>
             </div>
 
             <!-- Data Sources Row (Collapsed by default) -->
@@ -199,6 +227,127 @@
                     </div>
                     <div class="card-content" id="linear-content"><div class="skeleton"></div></div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Kanban Board Tab -->
+        <div id="tab-kanban" class="tab-content">
+            <div class="kanban-toolbar">
+                <div class="kanban-toolbar-left">
+                    <h2 style="font-family: var(--font-display); font-size: 1.5rem; margin: 0;">Task Board</h2>
+                </div>
+                <div class="kanban-toolbar-right">
+                    <button class="btn-kanban primary" onclick="KanbanBoard.openModal('backlog')">
+                        <i data-lucide="plus" class="icon"></i> New Task
+                    </button>
+                    <button class="btn-kanban" onclick="KanbanBoard.loadTasks()">
+                        <i data-lucide="refresh-cw" class="icon"></i> Refresh
+                    </button>
+                </div>
+            </div>
+
+            <div class="kanban-board">
+                <div class="kanban-column" data-kanban-column="backlog">
+                    <div class="kanban-column-header">
+                        <div class="kanban-column-title">
+                            <h3>Backlog</h3>
+                            <span class="kanban-column-count">0</span>
+                        </div>
+                        <span class="kanban-column-label">Ideas & Future Work</span>
+                    </div>
+                    <div class="kanban-cards"></div>
+                </div>
+
+                <div class="kanban-column" data-kanban-column="ready">
+                    <div class="kanban-column-header">
+                        <div class="kanban-column-title">
+                            <h3>Ready</h3>
+                            <span class="kanban-column-count">0</span>
+                        </div>
+                        <span class="kanban-column-label">Queued & Prioritized</span>
+                    </div>
+                    <div class="kanban-cards"></div>
+                </div>
+
+                <div class="kanban-column" data-kanban-column="in-progress">
+                    <div class="kanban-column-header">
+                        <div class="kanban-column-title">
+                            <h3>Active</h3>
+                            <span class="kanban-column-count">0</span>
+                        </div>
+                        <span class="kanban-column-label">Currently Working</span>
+                    </div>
+                    <div class="kanban-cards"></div>
+                </div>
+
+                <div class="kanban-column" data-kanban-column="review">
+                    <div class="kanban-column-header">
+                        <div class="kanban-column-title">
+                            <h3>Review</h3>
+                            <span class="kanban-column-count">0</span>
+                        </div>
+                        <span class="kanban-column-label">Pending Approval</span>
+                    </div>
+                    <div class="kanban-cards"></div>
+                </div>
+
+                <div class="kanban-column" data-kanban-column="done">
+                    <div class="kanban-column-header">
+                        <div class="kanban-column-title">
+                            <h3>Complete</h3>
+                            <span class="kanban-column-count">0</span>
+                        </div>
+                        <span class="kanban-column-label">Finished & Shipped</span>
+                    </div>
+                    <div class="kanban-cards"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Kanban Modal -->
+        <div class="kanban-modal" id="kanban-modal">
+            <div class="kanban-modal-content">
+                <div class="kanban-modal-header" id="kanban-modal-header">Add New Task</div>
+                <form id="kanban-task-form" onsubmit="event.preventDefault(); KanbanBoard.saveTask();">
+                    <div class="kanban-modal-form">
+                        <div class="kanban-form-group">
+                            <label for="kanban-task-title">Title</label>
+                            <input type="text" id="kanban-task-title" required placeholder="What needs to be done?">
+                        </div>
+                        <div class="kanban-form-group">
+                            <label for="kanban-task-description">Description</label>
+                            <textarea id="kanban-task-description" placeholder="Additional details..."></textarea>
+                        </div>
+                        <div class="kanban-form-group">
+                            <label for="kanban-task-tags">Tags</label>
+                            <input type="text" id="kanban-task-tags" placeholder="automation, priority, research (comma-separated)">
+                        </div>
+                        <div class="kanban-form-group">
+                            <label for="kanban-task-priority">Priority</label>
+                            <select id="kanban-task-priority">
+                                <option value="1">Low</option>
+                                <option value="2" selected>Normal</option>
+                                <option value="3">High</option>
+                                <option value="4">Urgent</option>
+                            </select>
+                        </div>
+                        <div class="kanban-form-group">
+                            <label for="kanban-task-column">Column</label>
+                            <select id="kanban-task-column">
+                                <option value="backlog">Backlog</option>
+                                <option value="ready">Ready</option>
+                                <option value="in-progress">In Progress</option>
+                                <option value="review">Review</option>
+                                <option value="done">Done</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="kanban-modal-actions">
+                        <button type="button" class="btn-kanban danger" id="kanban-delete-btn" style="display: none;" onclick="KanbanBoard.deleteTask(KanbanBoard.currentTask?.id)">Delete</button>
+                        <button type="button" class="btn-kanban" onclick="KanbanBoard.closeModal()">Cancel</button>
+                        <button type="submit" class="btn-kanban primary">Save</button>
+                    </div>
+                </form>
             </div>
         </div>
 
@@ -592,6 +741,10 @@
         </div>
     </div>
 
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
     <script src="/static/js/app.js"></script>
+    <script src="/static/js/kanban.js"></script>
 </body>
 </html>
