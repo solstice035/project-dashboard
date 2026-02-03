@@ -24,6 +24,11 @@ import requests
 from flask import Flask, jsonify, send_from_directory, request
 
 from utils import group_items_by_key
+from config_loader import get_config, get_config_dict, ConfigurationError
+from resilience import (
+    retry, retry_with_circuit_breaker, CircuitBreakerError,
+    todoist_circuit, linear_circuit, weather_circuit, get_circuit_status
+)
 
 
 # =============================================================================
@@ -68,6 +73,16 @@ class Defaults:
     BUDGET_UNDER_XP = 10
     DURATION_BONUS_PER_10MIN = 5
     DURATION_BONUS_MAX = 25
+
+    # Display limits
+    MAX_COMMITS_DISPLAY = 5
+    MAX_UPCOMING_TASKS = 5
+    MAX_READY_TASKS = 5
+    MAX_URGENT_EMAILS = 5
+    MAX_PEOPLE_EMAILS = 7
+
+    # Sprint quality gates
+    QUALITY_GATES_TOTAL = 8
 
 
 class Kanban:
@@ -124,22 +139,15 @@ except ImportError as e:
 
 
 def get_db_connection():
-    """Get a basic database connection using config values."""
-    db_config = config.get('database', {})
-    return psycopg2.connect(
-        dbname=db_config.get('name', 'nick'),
-        host=db_config.get('host', 'localhost')
-    )
+    """Get a basic database connection using centralized config."""
+    app_config = get_config()
+    return psycopg2.connect(**app_config.database.to_psycopg2_params())
 
 
 def get_dict_db_connection():
     """Get a database connection with RealDictCursor for dict-like row access."""
-    db_config = config.get('database', {})
-    return psycopg2.connect(
-        dbname=db_config.get('name', 'nick'),
-        host=db_config.get('host', 'localhost'),
-        cursor_factory=RealDictCursor
-    )
+    app_config = get_config()
+    return psycopg2.connect(**app_config.database.to_psycopg2_params(), cursor_factory=RealDictCursor)
 
 
 # Configure logging
@@ -151,65 +159,16 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 
-# Load configuration
+# Load configuration using centralized loader
 CONFIG_PATH = Path(__file__).parent / 'config.yaml'
-DEFAULT_CONFIG = {
-    'todoist': {'token': '', 'projects': []},
-    'linear': {'api_key': '', 'team_id': ''},
-    'git': {'scan_paths': ['~/clawd/projects'], 'history_days': 7},
-    'kanban': {},
-    'database': {'name': 'nick', 'host': 'localhost'},
-    'email': {'accounts': []},
-    'integrations': {
-        'school_db': '~/clawd/data/school-automation.db',
-        'health_data': '~/clawd/projects/health-analytics/dashboard/data',
-        'sprint_logs': '~/obsidian/claude/1-Projects/0-Dev/01-JeeveSprints',
-        'monzo_api': 'http://localhost/api/v1'
-    },
-    'server': {'port': 8889, 'host': '0.0.0.0', 'refresh_interval': 300}
-}
 
-
-def load_config() -> dict:
-    """Load configuration from YAML file."""
-    if not CONFIG_PATH.exists():
-        logger.warning(f"Config file not found at {CONFIG_PATH}, using defaults. "
-                       f"Copy config.example.yaml to config.yaml to customize.")
-        return DEFAULT_CONFIG
-
-    try:
-        with open(CONFIG_PATH) as f:
-            config = yaml.safe_load(f)
-
-            if config is None:
-                logger.warning(f"Config file {CONFIG_PATH} is empty, using defaults")
-                return DEFAULT_CONFIG
-
-            # Merge with defaults
-            for key, value in DEFAULT_CONFIG.items():
-                if key not in config:
-                    config[key] = value
-                elif isinstance(value, dict):
-                    for subkey, subvalue in value.items():
-                        if subkey not in config[key]:
-                            config[key][subkey] = subvalue
-
-            logger.info(f"Loaded configuration from {CONFIG_PATH}")
-            return config
-
-    except yaml.YAMLError as e:
-        logger.error(f"YAML syntax error in {CONFIG_PATH}: {e}")
-        logger.error("Fix the syntax error or delete config.yaml to use defaults")
-        raise SystemExit(f"Invalid config file: {e}")
-    except PermissionError as e:
-        logger.error(f"Permission denied reading {CONFIG_PATH}: {e}")
-        raise SystemExit(f"Cannot read config file: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error loading {CONFIG_PATH}: {e}")
-        raise SystemExit(f"Config load failed: {e}")
-
-
-config = load_config()
+# Initialize config - using dict-like proxy for backward compatibility
+try:
+    config = get_config_dict()
+    app_config = get_config()
+except ConfigurationError as e:
+    logger.error(f"Configuration error: {e}")
+    raise SystemExit(f"Configuration error: {e}")
 
 
 # =============================================================================
@@ -265,7 +224,7 @@ def fetch_git_repos() -> dict[str, Any]:
                     )
                     if log_result.returncode == 0 and log_result.stdout.strip():
                         commits = log_result.stdout.strip().split('\n')
-                        repo_info['commits'] = commits[:5]
+                        repo_info['commits'] = commits[:Defaults.MAX_COMMITS_DISPLAY]
                         repo_info['commit_count'] = len(commits)
                     
                     # Check if dirty
@@ -312,49 +271,53 @@ def fetch_git_repos() -> dict[str, Any]:
     return result
 
 
+@retry_with_circuit_breaker(
+    todoist_circuit,
+    max_attempts=3,
+    base_delay=1.0,
+    exceptions=(requests.exceptions.RequestException,)
+)
+def _todoist_api_get(endpoint: str, headers: dict) -> dict:
+    """Make a GET request to Todoist API with retry logic."""
+    resp = requests.get(
+        f'https://api.todoist.com/rest/v2/{endpoint}',
+        headers=headers,
+        timeout=Defaults.API_TIMEOUT_MEDIUM
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def fetch_todoist() -> dict[str, Any]:
     """Fetch tasks from Todoist."""
     result = {'status': Status.OK, 'tasks': [], 'error': None}
-    
+
     token = config['todoist'].get('token', '')
     if not token:
         result['status'] = Status.NOT_CONFIGURED
         result['error'] = 'Todoist token not configured'
         return result
-    
+
     try:
         headers = {'Authorization': f'Bearer {token}'}
-        resp = requests.get(
-            'https://api.todoist.com/rest/v2/tasks',
-            headers=headers,
-            timeout=Defaults.API_TIMEOUT_MEDIUM
-        )
-        resp.raise_for_status()
-        all_tasks = resp.json()
-        
-        # Get project names for filtering
-        projects_resp = requests.get(
-            'https://api.todoist.com/rest/v2/projects',
-            headers=headers,
-            timeout=Defaults.API_TIMEOUT_MEDIUM
-        )
-        projects_resp.raise_for_status()
-        projects = {p['id']: p['name'] for p in projects_resp.json()}
-        
+        all_tasks = _todoist_api_get('tasks', headers)
+        projects_data = _todoist_api_get('projects', headers)
+        projects = {p['id']: p['name'] for p in projects_data}
+
         # Filter by configured projects (if any)
         allowed_projects = config['todoist'].get('projects', [])
         today = datetime.now().strftime('%Y-%m-%d')
-        
+
         for task in all_tasks:
             project_name = projects.get(task.get('project_id'), 'Unknown')
-            
+
             # Filter by project if configured
             if allowed_projects and project_name not in allowed_projects:
                 continue
-            
+
             due = task.get('due', {})
             due_date = due.get('date', '') if due else ''
-            
+
             task_info = {
                 'id': task['id'],
                 'content': task['content'],
@@ -366,7 +329,7 @@ def fetch_todoist() -> dict[str, Any]:
                 'url': task.get('url', '')
             }
             result['tasks'].append(task_info)
-        
+
         # Sort: overdue first, then today, then by priority
         result['tasks'].sort(key=lambda x: (
             not x['is_overdue'],
@@ -374,7 +337,11 @@ def fetch_todoist() -> dict[str, Any]:
             -x['priority'],
             x['due_date'] or 'z'
         ))
-        
+
+    except CircuitBreakerError as e:
+        result['status'] = Status.UNAVAILABLE
+        result['error'] = f'Todoist service temporarily unavailable (retry at {e.reset_time.strftime("%H:%M")})'
+        logger.warning(f"Todoist circuit breaker open: {e}")
     except requests.exceptions.RequestException as e:
         result['status'] = Status.ERROR
         result['error'] = str(e)
@@ -383,7 +350,7 @@ def fetch_todoist() -> dict[str, Any]:
         result['status'] = Status.ERROR
         result['error'] = str(e)
         logger.error(f"Todoist processing error: {e}")
-    
+
     return result
 
 
@@ -523,16 +490,38 @@ def validate_kanban_task(data: dict, require_title: bool = True) -> str | None:
     return None
 
 
+@retry_with_circuit_breaker(
+    linear_circuit,
+    max_attempts=3,
+    base_delay=1.0,
+    exceptions=(requests.exceptions.RequestException,)
+)
+def _linear_graphql_query(query: str, api_key: str) -> dict:
+    """Execute Linear GraphQL query with retry logic."""
+    headers = {
+        'Authorization': api_key,
+        'Content-Type': 'application/json'
+    }
+    resp = requests.post(
+        'https://api.linear.app/graphql',
+        headers=headers,
+        json={'query': query},
+        timeout=Defaults.API_TIMEOUT_MEDIUM
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def fetch_linear() -> dict[str, Any]:
     """Fetch issues from Linear."""
     result = {'status': Status.OK, 'issues': [], 'by_status': {}, 'error': None}
-    
+
     api_key = config['linear'].get('api_key', '')
     if not api_key:
         result['status'] = Status.NOT_CONFIGURED
         result['error'] = 'Linear API key not configured'
         return result
-    
+
     try:
         # GraphQL query for assigned issues
         query = """
@@ -559,33 +548,21 @@ def fetch_linear() -> dict[str, Any]:
             }
         }
         """
-        
-        headers = {
-            'Authorization': api_key,
-            'Content-Type': 'application/json'
-        }
-        
-        resp = requests.post(
-            'https://api.linear.app/graphql',
-            headers=headers,
-            json={'query': query},
-            timeout=Defaults.API_TIMEOUT_MEDIUM
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        
+
+        data = _linear_graphql_query(query, api_key)
+
         if 'errors' in data:
             result['status'] = Status.ERROR
             result['error'] = data['errors'][0].get('message', 'Unknown error')
             return result
-        
+
         issues = data.get('data', {}).get('viewer', {}).get('assignedIssues', {}).get('nodes', [])
-        
+
         for issue in issues:
             state = issue.get('state', {})
             state_name = state.get('name', 'Unknown')
             state_type = state.get('type', 'unknown')
-            
+
             issue_info = {
                 'id': issue.get('id'),
                 'identifier': issue.get('identifier'),
@@ -598,15 +575,19 @@ def fetch_linear() -> dict[str, Any]:
                 'updated_at': issue.get('updatedAt')
             }
             result['issues'].append(issue_info)
-            
+
             # Group by status
             if state_name not in result['by_status']:
                 result['by_status'][state_name] = []
             result['by_status'][state_name].append(issue_info)
-        
+
         # Sort by priority (higher = more urgent in Linear: 1=urgent, 4=low, 0=none)
         result['issues'].sort(key=lambda x: (x['priority'] or 5))
-        
+
+    except CircuitBreakerError as e:
+        result['status'] = Status.UNAVAILABLE
+        result['error'] = f'Linear service temporarily unavailable (retry at {e.reset_time.strftime("%H:%M")})'
+        logger.warning(f"Linear circuit breaker open: {e}")
     except requests.exceptions.RequestException as e:
         result['status'] = Status.ERROR
         result['error'] = str(e)
@@ -615,7 +596,7 @@ def fetch_linear() -> dict[str, Any]:
         result['status'] = Status.ERROR
         result['error'] = str(e)
         logger.error(f"Linear processing error: {e}")
-    
+
     return result
 
 
@@ -631,12 +612,58 @@ def serve_index():
 
 @app.route('/api/health')
 def health_check():
-    """Health check endpoint."""
-    return jsonify({
+    """
+    Comprehensive health check endpoint.
+
+    Returns status of all components: database, external services, circuit breakers.
+    """
+    health = {
         'status': Status.OK,
         'timestamp': datetime.now().isoformat(),
-        'version': '1.0.0'
-    })
+        'version': '1.0.0',
+        'components': {}
+    }
+
+    # Database health
+    if DB_AVAILABLE:
+        db_health = db.check_health()
+        health['components']['database'] = db_health
+        if not db_health.get('healthy'):
+            health['status'] = Status.ERROR
+    else:
+        health['components']['database'] = {
+            'healthy': False,
+            'error': 'Database module not available'
+        }
+
+    # Configuration status
+    health['components']['config'] = {
+        'todoist_configured': app_config.todoist.is_configured,
+        'linear_configured': app_config.linear.is_configured,
+        'email_accounts': len(app_config.email.configured_accounts),
+        'telegram_configured': app_config.notifications.telegram.is_configured,
+        'slack_configured': app_config.notifications.slack.is_configured
+    }
+
+    # Circuit breaker status
+    health['components']['circuit_breakers'] = get_circuit_status()
+
+    # Determine overall status
+    # If any critical component is unhealthy, mark overall as degraded
+    if health['components']['database'].get('healthy') is False:
+        health['status'] = Status.ERROR
+
+    # Check if any circuit breaker is open
+    open_circuits = [
+        name for name, status in health['components']['circuit_breakers'].items()
+        if status.get('state') == 'open'
+    ]
+    if open_circuits:
+        if health['status'] == Status.OK:
+            health['status'] = 'degraded'
+        health['components']['circuit_breakers']['open_circuits'] = open_circuits
+
+    return jsonify(health)
 
 
 @app.route('/api/dashboard')
@@ -993,23 +1020,37 @@ def legacy_kanban_delete_task(task_id):
 # Standup & Planning API
 # =============================================================================
 
+@retry_with_circuit_breaker(
+    weather_circuit,
+    max_attempts=2,  # Weather is non-critical, fewer retries
+    base_delay=0.5,
+    exceptions=(requests.exceptions.RequestException,)
+)
+def _weather_api_get() -> dict:
+    """Fetch weather data with retry logic."""
+    resp = requests.get('https://wttr.in/London?format=j1', timeout=Defaults.API_TIMEOUT_SHORT)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def fetch_weather() -> dict:
     """Fetch current weather."""
     try:
-        resp = requests.get('https://wttr.in/London?format=j1', timeout=Defaults.API_TIMEOUT_SHORT)
-        if resp.status_code == 200:
-            data = resp.json()
-            current = data.get('current_condition', [{}])[0]
-            return {
-                'status': Status.OK,
-                'temp_c': current.get('temp_C'),
-                'condition': current.get('weatherDesc', [{}])[0].get('value'),
-                'humidity': current.get('humidity'),
-                'wind_kph': current.get('windspeedKmph')
-            }
+        data = _weather_api_get()
+        current = data.get('current_condition', [{}])[0]
+        return {
+            'status': Status.OK,
+            'temp_c': current.get('temp_C'),
+            'condition': current.get('weatherDesc', [{}])[0].get('value'),
+            'humidity': current.get('humidity'),
+            'wind_kph': current.get('windspeedKmph')
+        }
+    except CircuitBreakerError as e:
+        logger.debug(f"Weather circuit breaker open: {e}")
+        return {'status': Status.UNAVAILABLE, 'error': 'Weather service temporarily unavailable'}
     except Exception as e:
         logger.warning(f"Weather fetch failed: {e}")
-    return {'status': Status.ERROR, 'error': 'Failed to fetch weather'}
+        return {'status': Status.ERROR, 'error': 'Failed to fetch weather'}
 
 
 @app.route('/api/standup')
@@ -1045,11 +1086,11 @@ def get_standup():
         'tasks': {
             'overdue': overdue,
             'today': today_tasks,
-            'upcoming': upcoming[:5]  # Next 5 upcoming
+            'upcoming': upcoming[:Defaults.MAX_UPCOMING_TASKS]
         },
         'kanban': {
             'in_progress': in_progress,
-            'ready': ready[:5]  # Top 5 ready
+            'ready': ready[:Defaults.MAX_READY_TASKS]
         },
         'summary': {
             'overdue_count': len(overdue),
@@ -1107,7 +1148,7 @@ def fetch_inbox_for_account(account: str, max_results: int = 50) -> dict:
                 'subject': m.get('subject', '(no subject)')[:60],
                 'from': m.get('from', 'unknown').split('<')[0].strip()[:30],
                 'date': m.get('date', '')
-            } for m in urgent[:5]]
+            } for m in urgent[:Defaults.MAX_URGENT_EMAILS]]
         
         # Get from real people (not automated)
         proc = subprocess.run(
@@ -1123,7 +1164,7 @@ def fetch_inbox_for_account(account: str, max_results: int = 50) -> dict:
                 'subject': m.get('subject', '(no subject)')[:60],
                 'from': m.get('from', 'unknown').split('<')[0].strip()[:30],
                 'date': m.get('date', '')
-            } for m in people[:7]]
+            } for m in people[:Defaults.MAX_PEOPLE_EMAILS]]
         
         # Get newsletter/promo count
         proc = subprocess.run(
@@ -1476,8 +1517,8 @@ def get_school_actions():
             if action.get('action_data'):
                 try:
                     action['action_data'] = json.loads(action['action_data'])
-                except:
-                    pass
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.debug(f"Failed to parse action_data JSON: {e}")
             actions.append(action)
         
         conn.close()
@@ -3415,6 +3456,64 @@ def test_notifications():
 
 
 # =============================================================================
+# Brave Search Integration
+# =============================================================================
+
+@app.route('/api/search')
+def brave_search():
+    """Perform a web search via Brave Search API."""
+    query = request.args.get('q', '')
+    count = request.args.get('count', 10, type=int)
+    country = request.args.get('country', 'GB')
+    
+    if not query:
+        return jsonify({'status': Status.ERROR, 'error': 'Query required'}), 400
+    
+    brave_config = config.get('brave_search', {})
+    api_key = brave_config.get('api_key')
+    
+    if not api_key:
+        return jsonify({'status': Status.NOT_CONFIGURED, 'error': 'Brave Search not configured'})
+    
+    try:
+        import urllib.parse
+        params = urllib.parse.urlencode({
+            'q': query,
+            'count': min(count, 20),
+            'country': country,
+            'search_lang': 'en',
+            'text_decorations': 'false'
+        })
+        
+        url = f"https://api.search.brave.com/res/v1/web/search?{params}"
+        response = requests.get(url, headers={
+            'Accept': 'application/json',
+            'X-Subscription-Token': api_key
+        }, timeout=Defaults.API_TIMEOUT_MEDIUM)
+        
+        if response.status_code != 200:
+            return jsonify({'status': Status.ERROR, 'error': f'API error: {response.status_code}'})
+        
+        data = response.json()
+        results = data.get('web', {}).get('results', [])
+        
+        return jsonify({
+            'status': Status.OK,
+            'query': query,
+            'count': len(results),
+            'results': [{
+                'title': r.get('title'),
+                'url': r.get('url'),
+                'description': r.get('description', '')[:300]
+            } for r in results]
+        })
+        
+    except Exception as e:
+        logger.error(f"Brave Search error: {e}")
+        return jsonify({'status': Status.ERROR, 'error': str(e)}), 500
+
+
+# =============================================================================
 # RSS/Miniflux Integration
 # =============================================================================
 
@@ -3612,18 +3711,31 @@ def rss_summary():
 # =============================================================================
 
 if __name__ == '__main__':
-    port = config['server'].get('port', 8889)
-    host = config['server'].get('host', '0.0.0.0')
+    port = app_config.server.port
+    host = app_config.server.host
 
     logger.info(f"Starting Project Dashboard on {host}:{port}")
     logger.info(f"Config loaded from: {CONFIG_PATH}")
 
+    # Initialize database connection pool
+    if DB_AVAILABLE:
+        if db.init_pool():
+            logger.info("Database connection pool initialized")
+        else:
+            logger.warning("Failed to initialize database connection pool, using direct connections")
+
     # Start email scheduler if enabled
-    if config.get('scheduling', {}).get('enabled', False):
+    scheduling = config.get('scheduling', {})
+    if scheduling.get('enabled', False):
         scheduler = get_email_scheduler()
         if scheduler and scheduler.start():
             logger.info("Email scheduler started")
         else:
             logger.warning("Email scheduler not started (disabled or unavailable)")
 
-    app.run(host=host, port=port, debug=os.environ.get('FLASK_DEBUG', False))
+    try:
+        app.run(host=host, port=port, debug=os.environ.get('FLASK_DEBUG', False))
+    finally:
+        # Clean up connection pool on shutdown
+        if DB_AVAILABLE:
+            db.close_pool()

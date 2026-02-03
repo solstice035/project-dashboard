@@ -15,6 +15,9 @@ import database as db
 
 logger = logging.getLogger(__name__)
 
+# Sprint constants
+QUALITY_GATES_TOTAL = 8
+
 # Load config for sprint logs path
 CONFIG_PATH = Path(__file__).parent / 'config.yaml'
 DEFAULT_SPRINT_LOGS_PATH = '~/obsidian/claude/1-Projects/0-Dev/01-JeeveSprints'
@@ -93,7 +96,7 @@ def parse_sprint_log(file_path: Path) -> dict | None:
             'items': items,
             'quality_gates': qg,
             'gates_passed': gates_passed,
-            'gates_total': 8,
+            'gates_total': QUALITY_GATES_TOTAL,
             'decisions': frontmatter.get('decisions', []),
             'deviations': frontmatter.get('deviations', []),
             'block_reason': frontmatter.get('block_reason'),
@@ -216,7 +219,7 @@ def _build_sprint_response(row: dict) -> dict:
         'tasks_total': row['tasks_total'],
         'quality_gates': qg,
         'gates_passed': row['gates_passed'],
-        'gates_total': 8,
+        'gates_total': QUALITY_GATES_TOTAL,
         'items': items,
         'decisions': decisions,
         'deviations': deviations,

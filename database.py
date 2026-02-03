@@ -1,6 +1,6 @@
 """
 Database module for Project Dashboard analytics.
-Uses PostgreSQL for storing historical snapshots.
+Uses PostgreSQL for storing historical snapshots with connection pooling.
 """
 
 import json
@@ -12,50 +12,157 @@ from contextlib import contextmanager
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
-import yaml
+from psycopg2 import pool
+
+from config_loader import get_config
 
 logger = logging.getLogger(__name__)
 
-# Load config for database settings
-CONFIG_PATH = Path(__file__).parent / 'config.yaml'
-DEFAULT_DB_CONFIG = {
-    'dbname': 'nick',
-    'host': 'localhost',
-}
+# =============================================================================
+# Connection Pool Management
+# =============================================================================
+
+# Module-level connection pool
+_connection_pool: Optional[pool.ThreadedConnectionPool] = None
 
 
-def _load_db_config() -> dict:
-    """Load database config from config.yaml."""
+class PoolConfig:
+    """Connection pool configuration constants."""
+    MIN_CONNECTIONS = 2
+    MAX_CONNECTIONS = 10
+
+
+def init_pool() -> bool:
+    """
+    Initialize the database connection pool.
+
+    Should be called once at application startup.
+
+    Returns:
+        True if pool initialized successfully, False otherwise
+    """
+    global _connection_pool
+
+    if _connection_pool is not None:
+        logger.debug("Connection pool already initialized")
+        return True
+
     try:
-        if CONFIG_PATH.exists():
-            with open(CONFIG_PATH) as f:
-                config = yaml.safe_load(f) or {}
-                db_section = config.get('database', {})
-                return {
-                    'dbname': db_section.get('name', 'nick'),
-                    'host': db_section.get('host', 'localhost'),
-                }
-    except Exception as e:
-        logger.warning(f"Failed to load database config: {e}, using defaults")
-    return DEFAULT_DB_CONFIG.copy()
+        config = get_config()
+        db_params = config.database.to_psycopg2_params()
+
+        _connection_pool = pool.ThreadedConnectionPool(
+            minconn=PoolConfig.MIN_CONNECTIONS,
+            maxconn=PoolConfig.MAX_CONNECTIONS,
+            cursor_factory=RealDictCursor,
+            **db_params
+        )
+        logger.info(
+            f"Database connection pool initialized: "
+            f"min={PoolConfig.MIN_CONNECTIONS}, max={PoolConfig.MAX_CONNECTIONS}, "
+            f"host={db_params.get('host')}, dbname={db_params.get('dbname')}"
+        )
+        return True
+
+    except psycopg2.Error as e:
+        logger.error(f"Failed to initialize connection pool: {e}")
+        return False
 
 
-DB_CONFIG = _load_db_config()
+def close_pool() -> None:
+    """Close the connection pool. Call during application shutdown."""
+    global _connection_pool
+
+    if _connection_pool is not None:
+        _connection_pool.closeall()
+        _connection_pool = None
+        logger.info("Database connection pool closed")
+
+
+def get_pool_status() -> dict:
+    """Get current status of the connection pool."""
+    if _connection_pool is None:
+        return {
+            "initialized": False,
+            "min_connections": PoolConfig.MIN_CONNECTIONS,
+            "max_connections": PoolConfig.MAX_CONNECTIONS
+        }
+
+    # psycopg2's ThreadedConnectionPool doesn't expose usage stats directly,
+    # but we can report configuration
+    return {
+        "initialized": True,
+        "min_connections": PoolConfig.MIN_CONNECTIONS,
+        "max_connections": PoolConfig.MAX_CONNECTIONS,
+        "closed": _connection_pool.closed
+    }
 
 
 @contextmanager
 def get_connection():
-    """Get a database connection."""
+    """
+    Get a database connection from the pool.
+
+    If the pool is not initialized, falls back to creating a single connection.
+    Connections are automatically returned to the pool when the context exits.
+    """
+    global _connection_pool
     conn = None
+
     try:
-        conn = psycopg2.connect(**DB_CONFIG, cursor_factory=RealDictCursor)
-        yield conn
+        if _connection_pool is not None:
+            # Get from pool
+            conn = _connection_pool.getconn()
+            yield conn
+        else:
+            # Fallback: create direct connection (pool not initialized)
+            config = get_config()
+            conn = psycopg2.connect(**config.database.to_psycopg2_params(), cursor_factory=RealDictCursor)
+            yield conn
+
     except psycopg2.Error as e:
         logger.error(f"Database connection error: {e}")
         raise
+
     finally:
         if conn:
-            conn.close()
+            if _connection_pool is not None:
+                # Return to pool
+                _connection_pool.putconn(conn)
+            else:
+                # Close direct connection
+                conn.close()
+
+
+def check_health() -> dict:
+    """
+    Check database health by executing a simple query.
+
+    Returns:
+        Dict with 'healthy' bool and 'latency_ms' or 'error' string
+    """
+    import time
+
+    start = time.time()
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            cur.fetchone()
+
+        latency_ms = round((time.time() - start) * 1000, 2)
+        return {
+            "healthy": True,
+            "latency_ms": latency_ms,
+            "pool": get_pool_status()
+        }
+
+    except psycopg2.Error as e:
+        return {
+            "healthy": False,
+            "error": str(e),
+            "pool": get_pool_status()
+        }
 
 
 # =============================================================================

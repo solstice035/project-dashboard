@@ -1,73 +1,108 @@
 # Project Dashboard Configuration
-# Copy to config.yaml and fill in your values
+# Copy to config.yaml and customize your settings
+#
+# SECURITY NOTE: For sensitive values (API tokens, passwords), use environment
+# variables instead of storing them in this file. See .env.example for details.
+#
+# Environment variables take precedence over values in this file.
 
+# =============================================================================
+# Todoist Integration
+# =============================================================================
 todoist:
-  token: "your-todoist-api-token"
+  # Token: Set via DASHBOARD_TODOIST_TOKEN environment variable
   # Only show tasks from these projects (leave empty for all)
   projects:
     - "Personal"
     - "Home"
 
+# =============================================================================
+# Linear Integration
+# =============================================================================
 linear:
-  api_key: "lin_api_xxxxxxxxxxxx"
+  # API Key: Set via DASHBOARD_LINEAR_API_KEY environment variable
   # Your Linear team ID (found in team settings URL)
   team_id: "your-team-id"
 
+# =============================================================================
+# Git Repository Scanning
+# =============================================================================
 git:
-  # Directories to scan for git repos
+  # Directories to scan for git repos (~ is expanded to home directory)
   scan_paths:
     - "~/clawd/projects"
   # Days of commit history to show
   history_days: 7
 
+# =============================================================================
+# Kanban Board
+# =============================================================================
 kanban:
-  api_url: "http://localhost:8888/api/tasks"
+  # Kanban is stored in PostgreSQL, no additional config needed
+  # Optional API URL for external kanban (if not using built-in)
+  # api_url: "http://localhost:8888/api/tasks"
 
-# Database configuration
+# =============================================================================
+# Database Configuration
+# =============================================================================
 database:
+  # Can also be set via DASHBOARD_DB_NAME / DASHBOARD_DB_HOST
   name: "nick"
   host: "localhost"
 
-# Email accounts for inbox digest (requires Gmail app passwords)
-# Generate at: Google Account → Security → 2FA → App passwords
+# =============================================================================
+# Email Accounts for Inbox Digest
+# =============================================================================
+# App passwords: Set via DASHBOARD_EMAIL_N_APP_PASSWORD environment variables
+# where N is the account index (0, 1, 2, ...)
+#
+# To generate Gmail app passwords:
+# Google Account > Security > 2-Step Verification > App passwords
 email:
   accounts:
     - email: "your-email@gmail.com"
       name: "Main"
       priority: "high"
-      app_password: "xxxx xxxx xxxx xxxx"  # 16-char app password from Google
+      # app_password: Set DASHBOARD_EMAIL_0_APP_PASSWORD env var
     - email: "your-other-email@gmail.com"
       name: "Services"
       priority: "medium"
-      app_password: "xxxx xxxx xxxx xxxx"
+      # app_password: Set DASHBOARD_EMAIL_1_APP_PASSWORD env var
 
-# Integration paths
+  # Extract text from PDF attachments
+  extract_pdfs: true
+
+# =============================================================================
+# Integration Paths
+# =============================================================================
 integrations:
   school_db: "~/clawd/data/school-automation.db"
   health_data: "~/clawd/projects/health-analytics/dashboard/data"
   sprint_logs: "~/obsidian/claude/1-Projects/0-Dev/01-JeeveSprints"
   monzo_api: "http://localhost/api/v1"
 
+# =============================================================================
+# Server Settings
+# =============================================================================
 server:
   port: 8889
-  host: "0.0.0.0"  # Allow network access
+  host: "0.0.0.0"  # Allow network access (use 127.0.0.1 for local only)
   # Auto-refresh interval in seconds
   refresh_interval: 300
 
 # =============================================================================
-# Email Automation Configuration
+# Notification Services
 # =============================================================================
-
 notifications:
   telegram:
     enabled: true
-    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    # bot_token: Set via DASHBOARD_TELEGRAM_BOT_TOKEN environment variable
     chat_id: "your-chat-id"
     # Used for: URGENT notifications only (school actions with deadlines)
 
   slack:
     enabled: true
-    webhook_url: "${SLACK_WEBHOOK_URL}"
+    # webhook_url: Set via DASHBOARD_SLACK_WEBHOOK_URL environment variable
     channel: "#email-digests"
     # Used for: Digests, non-urgent summaries
 
@@ -77,6 +112,9 @@ notifications:
     digest: ["slack"]              # Daily/periodic summaries
     info: ["slack"]                # Non-urgent updates
 
+# =============================================================================
+# Email Automation Scheduling
+# =============================================================================
 scheduling:
   enabled: true
   jobs:

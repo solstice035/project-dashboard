@@ -103,57 +103,52 @@ class TestStandupEndpoint:
 class TestWeatherFetcher:
     """Tests for weather fetching."""
 
-    @patch('requests.get')
-    def test_fetch_weather_success(self, mock_get):
+    @patch('server._weather_api_get')
+    def test_fetch_weather_success(self, mock_weather_api):
         """Should successfully fetch weather data."""
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=MagicMock(return_value={
-                'current_condition': [{
-                    'temp_C': '12',
-                    'weatherDesc': [{'value': 'Partly cloudy'}],
-                    'humidity': '65',
-                    'windspeedKmph': '15'
-                }]
-            })
-        )
-        
+        mock_weather_api.return_value = {
+            'current_condition': [{
+                'temp_C': '12',
+                'weatherDesc': [{'value': 'Partly cloudy'}],
+                'humidity': '65',
+                'windspeedKmph': '15'
+            }]
+        }
+
         result = fetch_weather()
-        
+
         assert result['status'] == 'ok'
         assert result['temp_c'] == '12'
         assert result['condition'] == 'Partly cloudy'
         assert result['humidity'] == '65'
         assert result['wind_kph'] == '15'
 
-    @patch('requests.get')
-    def test_fetch_weather_timeout(self, mock_get):
+    @patch('server._weather_api_get')
+    def test_fetch_weather_timeout(self, mock_weather_api):
         """Should handle timeout gracefully."""
         import requests
-        mock_get.side_effect = requests.exceptions.Timeout()
-        
+        mock_weather_api.side_effect = requests.exceptions.Timeout()
+
         result = fetch_weather()
-        
+
         assert result['status'] == 'error'
         assert 'error' in result
 
-    @patch('requests.get')
-    def test_fetch_weather_api_error(self, mock_get):
+    @patch('server._weather_api_get')
+    def test_fetch_weather_api_error(self, mock_weather_api):
         """Should handle API errors gracefully."""
-        mock_get.return_value = MagicMock(status_code=500)
-        
+        import requests
+        mock_weather_api.side_effect = requests.exceptions.HTTPError("500 Server Error")
+
         result = fetch_weather()
-        
+
         assert result['status'] == 'error'
 
-    @patch('requests.get')
-    def test_fetch_weather_malformed_response(self, mock_get):
+    @patch('server._weather_api_get')
+    def test_fetch_weather_malformed_response(self, mock_weather_api):
         """Should handle malformed responses."""
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=MagicMock(return_value={'invalid': 'data'})
-        )
-        
+        mock_weather_api.return_value = {'invalid': 'data'}
+
         result = fetch_weather()
         
         # Should return error or handle gracefully

@@ -404,8 +404,8 @@ class InboxFetcher:
             if mail:
                 try:
                     mail.logout()
-                except:
-                    pass
+                except (imaplib.IMAP4.error, OSError) as e:
+                    logger.debug(f"[{account}] Error during IMAP logout (connection may already be closed): {e}")
             result.fetch_duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
 
         return result
@@ -530,8 +530,10 @@ class InboxFetcher:
                     try:
                         extracted_text = payload.decode('utf-8', errors='replace')
                         extraction_status = "success"
-                    except:
+                    except (UnicodeDecodeError, AttributeError) as e:
                         extraction_status = "failed"
+                        extraction_error = f"Text decode error: {e}"
+                        logger.debug(f"[{account}] Failed to decode text attachment: {e}")
 
                 attachment = EmailAttachment(
                     filename=filename,
@@ -589,8 +591,8 @@ class InboxFetcher:
                         # Create preview (single line, truncated)
                         preview = ' '.join(full_text.split())[:preview_length]
                         return preview, full_text
-                except:
-                    pass
+                except (UnicodeDecodeError, AttributeError) as e:
+                    logger.debug(f"Failed to extract email body: {e}")
         return "", ""
 
     def _parse_from_field(self, from_field: str) -> tuple[str, str]:
@@ -621,7 +623,8 @@ class InboxFetcher:
                 else:
                     result.append(part)
             return " ".join(result)
-        except:
+        except (UnicodeDecodeError, LookupError, TypeError) as e:
+            logger.debug(f"Header decode fallback for '{header_value[:50]}...': {e}")
             return str(header_value)
 
     def _is_automated_sender(self, from_name: str, from_email: str) -> bool:
