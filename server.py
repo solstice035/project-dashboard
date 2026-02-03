@@ -1202,6 +1202,143 @@ def get_inbox_account(account):
 
 
 # =============================================================================
+# Health Data API (Life Tab)
+# =============================================================================
+
+def get_health_data_path():
+    """Get health analytics data path from config."""
+    return os.path.expanduser(
+        config.get('integrations', {}).get('health_data', '~/dev/dashboards/healthAnalytics/dashboard/data')
+    )
+
+
+def load_health_json(filename: str) -> dict | None:
+    """Load a health analytics JSON file."""
+    filepath = Path(get_health_data_path()) / filename
+    if not filepath.exists():
+        return None
+    try:
+        with open(filepath) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        logger.warning(f"Failed to load health data {filename}: {e}")
+        return None
+
+
+@app.route('/api/life/health')
+def get_health_data():
+    """Get health analytics data for Life tab."""
+    health_path = Path(get_health_data_path())
+    
+    if not health_path.exists():
+        return jsonify({
+            'status': Status.NOT_CONFIGURED,
+            'message': 'Health analytics data not found. Run: cd ~/dev/dashboards/healthAnalytics && ./health generate',
+            'path': str(health_path)
+        })
+    
+    # Load all relevant health data files
+    summary = load_health_json('summary_stats.json')
+    health_score = load_health_json('health_score.json')
+    trends = load_health_json('daily_trends.json')
+    insights = load_health_json('insights.json')
+    goals = load_health_json('goals_progress.json')
+    prs = load_health_json('personal_records.json')
+    
+    # Get metadata for freshness check
+    metadata = load_health_json('metadata.json')
+    
+    if not summary:
+        return jsonify({
+            'status': Status.ERROR,
+            'message': 'Health summary data missing. Run: ./health generate',
+            'path': str(health_path)
+        })
+    
+    # Build today's metrics from most recent trend data
+    today_metrics = {}
+    if trends and trends.get('dates'):
+        # Get most recent day's data
+        idx = -1  # Last index
+        today_metrics = {
+            'steps': trends['steps'][idx] if trends.get('steps') else 0,
+            'distance_km': trends['distance'][idx] if trends.get('distance') else 0,
+            'active_energy': trends['active_energy'][idx] if trends.get('active_energy') else 0,
+            'exercise_minutes': trends['exercise_minutes'][idx] if trends.get('exercise_minutes') else 0,
+            'stand_hours': trends['stand_hours'][idx] if trends.get('stand_hours') else 0,
+            'resting_hr': trends['resting_hr'][idx] if trends.get('resting_hr') else None,
+            'hrv': trends['hrv'][idx] if trends.get('hrv') else None,
+            'date': trends['dates'][idx] if trends.get('dates') else None
+        }
+    
+    return jsonify({
+        'status': Status.OK,
+        'source': DataSource.HEALTH_ANALYTICS,
+        'today': today_metrics,
+        'summary': summary,
+        'health_score': health_score,
+        'trends': {
+            'dates': trends.get('dates', [])[-14:] if trends else [],  # Last 14 days
+            'steps': trends.get('steps', [])[-14:] if trends else [],
+            'exercise': trends.get('exercise_minutes', [])[-14:] if trends else [],
+            'resting_hr': trends.get('resting_hr', [])[-14:] if trends else []
+        },
+        'insights': insights.get('insights', []) if insights else [],
+        'goals': goals,
+        'personal_records': prs,
+        'metadata': metadata,
+        'data_path': str(health_path)
+    })
+
+
+@app.route('/api/life/health/refresh', methods=['POST'])
+def refresh_health_data():
+    """Trigger health data regeneration."""
+    import subprocess
+    
+    health_root = Path(get_health_data_path()).parent.parent  # Go up from dashboard/data to healthAnalytics
+    health_cli = health_root / 'health'
+    
+    if not health_cli.exists():
+        return jsonify({
+            'status': Status.ERROR,
+            'message': 'Health CLI not found',
+            'path': str(health_cli)
+        }), 404
+    
+    try:
+        result = subprocess.run(
+            [str(health_cli), 'generate'],
+            capture_output=True, text=True, timeout=60,
+            cwd=str(health_root)
+        )
+        
+        if result.returncode == 0:
+            return jsonify({
+                'status': Status.OK,
+                'message': 'Health data regenerated successfully',
+                'output': result.stdout[-500:] if len(result.stdout) > 500 else result.stdout
+            })
+        else:
+            return jsonify({
+                'status': Status.ERROR,
+                'message': 'Health data generation failed',
+                'error': result.stderr[-500:] if len(result.stderr) > 500 else result.stderr
+            }), 500
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'status': Status.ERROR,
+            'message': 'Health data generation timed out'
+        }), 504
+    except Exception as e:
+        return jsonify({
+            'status': Status.ERROR,
+            'message': str(e)
+        }), 500
+
+
+# =============================================================================
 # School Email API
 # =============================================================================
 
@@ -2296,49 +2433,42 @@ def get_life_goals():
 
 
 # =============================================================================
-# Health Analytics Integration
+# Health Analytics Integration (Legacy endpoints for gamification)
 # =============================================================================
 
-def get_health_data_path():
-    """Get health data path from config."""
-    return os.path.expanduser(
-        config.get('integrations', {}).get('health_data', '~/clawd/projects/health-analytics/dashboard/data')
-    )
-
 @app.route('/api/integrations/health')
-def get_health_data():
-    """Get health data from the Health Analytics app."""
-    import os
-    
+def get_health_integration_data():
+    """Get health data from the Health Analytics app (legacy endpoint for gamification)."""
     try:
         data = {}
+        health_path = get_health_data_path()
         
         # Health score
-        score_path = os.path.join(get_health_data_path(), 'health_score.json')
+        score_path = os.path.join(health_path, 'health_score.json')
         if os.path.exists(score_path):
             with open(score_path) as f:
                 data['health_score'] = json.load(f)
         
         # Goals progress
-        goals_path = os.path.join(get_health_data_path(), 'goals_progress.json')
+        goals_path = os.path.join(health_path, 'goals_progress.json')
         if os.path.exists(goals_path):
             with open(goals_path) as f:
                 data['goals'] = json.load(f)
         
         # Summary stats
-        stats_path = os.path.join(get_health_data_path(), 'summary_stats.json')
+        stats_path = os.path.join(health_path, 'summary_stats.json')
         if os.path.exists(stats_path):
             with open(stats_path) as f:
                 data['stats'] = json.load(f)
         
         # Daily trends
-        trends_path = os.path.join(get_health_data_path(), 'daily_trends.json')
+        trends_path = os.path.join(health_path, 'daily_trends.json')
         if os.path.exists(trends_path):
             with open(trends_path) as f:
                 data['trends'] = json.load(f)
         
         # Insights
-        insights_path = os.path.join(get_health_data_path(), 'insights.json')
+        insights_path = os.path.join(health_path, 'insights.json')
         if os.path.exists(insights_path):
             with open(insights_path) as f:
                 data['insights'] = json.load(f)
@@ -2354,7 +2484,7 @@ def get_health_data():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/integrations/health/award-xp', methods=['POST'])
+@app.route('/api/life/health/award-xp', methods=['POST'])
 def award_health_xp():
     """Award XP based on health goals achieved."""
     import os
@@ -3281,6 +3411,199 @@ def test_notifications():
             name: {'success': r.success, 'error': r.error}
             for name, r in results.items()
         }
+    })
+
+
+# =============================================================================
+# RSS/Miniflux Integration
+# =============================================================================
+
+def get_miniflux_client():
+    """Get Miniflux API configuration."""
+    miniflux_config = config.get('miniflux', {})
+    if not miniflux_config.get('url'):
+        return None
+    return {
+        'url': miniflux_config['url'],
+        'auth': (miniflux_config.get('username', ''), miniflux_config.get('password', ''))
+    }
+
+
+def miniflux_request(endpoint, method='GET', data=None):
+    """Make a request to Miniflux API."""
+    client = get_miniflux_client()
+    if not client:
+        return None, 'Miniflux not configured'
+
+    try:
+        url = f"{client['url']}/v1{endpoint}"
+        if method == 'GET':
+            response = requests.get(url, auth=client['auth'], timeout=Defaults.API_TIMEOUT_MEDIUM)
+        elif method == 'POST':
+            response = requests.post(url, auth=client['auth'], json=data, timeout=Defaults.API_TIMEOUT_MEDIUM)
+        elif method == 'PUT':
+            response = requests.put(url, auth=client['auth'], json=data, timeout=Defaults.API_TIMEOUT_MEDIUM)
+
+        if response.status_code == 200 or response.status_code == 201:
+            return response.json(), None
+        else:
+            return None, f"API error: {response.status_code}"
+    except requests.exceptions.ConnectionError:
+        return None, 'Miniflux not reachable'
+    except Exception as e:
+        return None, str(e)
+
+
+@app.route('/api/rss/status')
+def rss_status():
+    """Check Miniflux connection status."""
+    data, error = miniflux_request('/me')
+    if error:
+        return jsonify({'status': Status.ERROR, 'error': error})
+    return jsonify({'status': Status.OK, 'user': data.get('username')})
+
+
+@app.route('/api/rss/categories')
+def rss_categories():
+    """Get all RSS categories."""
+    data, error = miniflux_request('/categories')
+    if error:
+        return jsonify({'status': Status.ERROR, 'error': error})
+    return jsonify({'status': Status.OK, 'categories': data})
+
+
+@app.route('/api/rss/feeds')
+def rss_feeds():
+    """Get all RSS feeds."""
+    data, error = miniflux_request('/feeds')
+    if error:
+        return jsonify({'status': Status.ERROR, 'error': error})
+    return jsonify({'status': Status.OK, 'feeds': data})
+
+
+@app.route('/api/rss/feeds', methods=['POST'])
+def rss_add_feed():
+    """Add a new RSS feed."""
+    if not request.is_json:
+        return jsonify({'status': Status.ERROR, 'error': 'JSON required'}), 400
+
+    feed_url = request.json.get('feed_url')
+    category_id = request.json.get('category_id', 1)
+
+    if not feed_url:
+        return jsonify({'status': Status.ERROR, 'error': 'feed_url required'}), 400
+
+    data, error = miniflux_request('/feeds', method='POST', data={
+        'feed_url': feed_url,
+        'category_id': category_id
+    })
+
+    if error:
+        return jsonify({'status': Status.ERROR, 'error': error})
+    return jsonify({'status': Status.OK, 'feed': data})
+
+
+@app.route('/api/rss/entries')
+def rss_entries():
+    """Get RSS entries with optional filters."""
+    status_filter = request.args.get('status', 'unread')  # unread, read, or all
+    limit = request.args.get('limit', 50, type=int)
+    category_id = request.args.get('category_id', type=int)
+
+    endpoint = f'/entries?status={status_filter}&limit={limit}&order=published_at&direction=desc'
+    if category_id:
+        endpoint += f'&category_id={category_id}'
+
+    data, error = miniflux_request(endpoint)
+    if error:
+        return jsonify({'status': Status.ERROR, 'error': error})
+
+    entries = data.get('entries', [])
+
+    # Group by category for display
+    by_category = {}
+    for entry in entries:
+        cat_title = entry.get('feed', {}).get('category', {}).get('title', 'Uncategorized')
+        if cat_title not in by_category:
+            by_category[cat_title] = []
+        by_category[cat_title].append({
+            'id': entry.get('id'),
+            'title': entry.get('title'),
+            'url': entry.get('url'),
+            'published_at': entry.get('published_at'),
+            'reading_time': entry.get('reading_time', 0),
+            'feed_title': entry.get('feed', {}).get('title', 'Unknown'),
+            'status': entry.get('status'),
+            'starred': entry.get('starred', False),
+            'content': entry.get('content', '')[:500]  # First 500 chars for preview
+        })
+
+    return jsonify({
+        'status': Status.OK,
+        'total': data.get('total', len(entries)),
+        'entries': entries,
+        'by_category': by_category
+    })
+
+
+@app.route('/api/rss/entries/<int:entry_id>/read', methods=['PUT'])
+def rss_mark_read(entry_id):
+    """Mark an entry as read."""
+    data, error = miniflux_request(f'/entries', method='PUT', data={
+        'entry_ids': [entry_id],
+        'status': 'read'
+    })
+    if error:
+        return jsonify({'status': Status.ERROR, 'error': error})
+    return jsonify({'status': Status.OK})
+
+
+@app.route('/api/rss/entries/<int:entry_id>/star', methods=['PUT'])
+def rss_toggle_star(entry_id):
+    """Toggle star on an entry."""
+    data, error = miniflux_request(f'/entries/{entry_id}/bookmark', method='PUT')
+    if error:
+        return jsonify({'status': Status.ERROR, 'error': error})
+    return jsonify({'status': Status.OK})
+
+
+@app.route('/api/rss/summary')
+def rss_summary():
+    """Get RSS feed summary stats."""
+    # Get feeds for counts
+    feeds_data, feeds_error = miniflux_request('/feeds')
+    if feeds_error:
+        return jsonify({'status': Status.ERROR, 'error': feeds_error})
+
+    # Get unread entries
+    entries_data, entries_error = miniflux_request('/entries?status=unread&limit=1')
+    if entries_error:
+        return jsonify({'status': Status.ERROR, 'error': entries_error})
+
+    # Get categories
+    cats_data, cats_error = miniflux_request('/categories')
+
+    feeds = feeds_data or []
+    categories = cats_data or []
+
+    # Calculate stats
+    total_unread = entries_data.get('total', 0) if entries_data else 0
+
+    # Unread by category
+    by_category = {}
+    for feed in feeds:
+        cat_title = feed.get('category', {}).get('title', 'Uncategorized')
+        if cat_title not in by_category:
+            by_category[cat_title] = {'feeds': 0, 'unread': 0}
+        by_category[cat_title]['feeds'] += 1
+        by_category[cat_title]['unread'] += feed.get('unread_count', 0)
+
+    return jsonify({
+        'status': Status.OK,
+        'total_feeds': len(feeds),
+        'total_unread': total_unread,
+        'categories': len(categories),
+        'by_category': by_category
     })
 
 

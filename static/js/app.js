@@ -324,6 +324,9 @@ function switchTab(tabId) {
         case 'financial':
             loadFinancialTab();
             break;
+        case 'rss':
+            loadRssEntries();
+            break;
     }
 
     refreshIcons();
@@ -374,7 +377,7 @@ async function refreshAll() {
     if (btn) btn.disabled = true;
     if (iconEl) iconEl.classList.add('spinner');
 
-    ['git', 'todoist', 'kanban', 'linear'].forEach(function(s) {
+    ['git', 'todoist', 'kanban', 'linear', 'rss'].forEach(function(s) {
         setStatus(s, 'loading');
     });
 
@@ -413,6 +416,9 @@ async function refreshAll() {
         
         // Fetch school email summary
         fetchAndRenderSchool();
+        
+        // Fetch RSS/News summary
+        loadRssSummary();
 
     } catch (error) {
         console.error('Error:', error);
@@ -2205,6 +2211,190 @@ function rescheduleTask(taskId) {
 
 // =============================================================================
 // =============================================================================
+// Health Data Integration (Apple Health)
+// =============================================================================
+
+let healthData = null;
+
+/**
+ * Load health data from Apple Health analytics
+ */
+async function loadHealthData() {
+    try {
+        const resp = await fetch('/api/life/health');
+        healthData = await resp.json();
+        
+        if (healthData.status !== 'ok') {
+            console.warn('Health data not available:', healthData.message);
+            renderHealthUnavailable(healthData.message);
+            return;
+        }
+        
+        renderHealthStats();
+        renderHealthInsights();
+        updateHealthScore();
+        
+    } catch (e) {
+        console.error('Health data fetch error:', e);
+        renderHealthUnavailable('Failed to load health data');
+    }
+}
+
+/**
+ * Render health stats in the stat cards
+ */
+function renderHealthStats() {
+    if (!healthData || !healthData.today) return;
+    
+    const today = healthData.today;
+    
+    // Steps
+    const stepsEl = document.getElementById('health-steps');
+    if (stepsEl) {
+        const steps = today.steps || 0;
+        stepsEl.textContent = steps.toLocaleString();
+        stepsEl.parentElement.classList.toggle('stat-success', steps >= 10000);
+    }
+    
+    // Exercise minutes
+    const exerciseEl = document.getElementById('health-exercise');
+    if (exerciseEl) {
+        const mins = today.exercise_minutes || 0;
+        exerciseEl.textContent = mins + 'm';
+        exerciseEl.parentElement.classList.toggle('stat-success', mins >= 30);
+    }
+    
+    // Resting HR
+    const rhrEl = document.getElementById('health-rhr');
+    if (rhrEl) {
+        const rhr = today.resting_hr;
+        rhrEl.textContent = rhr ? rhr + ' bpm' : '-';
+        // Lower is better for resting HR
+        if (rhr) {
+            rhrEl.parentElement.classList.toggle('stat-success', rhr < 60);
+        }
+    }
+}
+
+/**
+ * Update health score display
+ */
+function updateHealthScore() {
+    if (!healthData || !healthData.health_score) return;
+    
+    const score = healthData.health_score;
+    const scoreEl = document.getElementById('health-score-value');
+    const cardEl = document.getElementById('health-score-card');
+    
+    if (scoreEl) {
+        scoreEl.textContent = score.score;
+    }
+    
+    if (cardEl) {
+        // Color based on score level
+        cardEl.classList.remove('stat-success', 'stat-warning', 'stat-danger');
+        if (score.score >= 80) {
+            cardEl.classList.add('stat-success');
+        } else if (score.score >= 50) {
+            cardEl.classList.add('stat-warning');
+        } else {
+            cardEl.classList.add('stat-danger');
+        }
+        cardEl.title = score.description || '';
+    }
+    
+    // Update the Life Pulse XP widget with health-based XP
+    const lifePulseXp = document.getElementById('life-pulse-xp');
+    if (lifePulseXp && healthData.summary) {
+        // Calculate XP from health activities
+        const summary = healthData.summary;
+        let xp = 0;
+        
+        // 1 XP per 1000 steps
+        xp += Math.floor((healthData.today?.steps || 0) / 1000) * 10;
+        // 2 XP per exercise minute
+        xp += (healthData.today?.exercise_minutes || 0) * 2;
+        // 5 XP for hitting stand goal
+        if ((healthData.today?.stand_hours || 0) >= 12) xp += 50;
+        
+        lifePulseXp.textContent = '+' + xp;
+    }
+}
+
+/**
+ * Render health insights
+ */
+function renderHealthInsights() {
+    const container = document.getElementById('health-insights-content');
+    if (!container) return;
+    
+    if (!healthData || !healthData.insights || healthData.insights.length === 0) {
+        container.innerHTML = '<div class="empty-state-mini">No insights available</div>';
+        return;
+    }
+    
+    let html = '<div class="health-insights-list">';
+    healthData.insights.forEach(function(insight) {
+        const typeClass = insight.type === 'positive' ? 'insight-positive' : 
+                          insight.type === 'warning' ? 'insight-warning' : 'insight-neutral';
+        html += '<div class="insight-item ' + typeClass + '">';
+        html += '<span class="insight-icon">' + (insight.icon || '💡') + '</span>';
+        html += '<div class="insight-content">';
+        html += '<strong>' + escapeHtml(insight.title) + '</strong>';
+        html += '<span>' + escapeHtml(insight.text) + '</span>';
+        html += '</div>';
+        html += '</div>';
+    });
+    html += '</div>';
+    
+    container.innerHTML = html;
+}
+
+/**
+ * Render health unavailable state
+ */
+function renderHealthUnavailable(message) {
+    const container = document.getElementById('health-insights-content');
+    if (container) {
+        container.innerHTML = '<div class="empty-state-mini">' + 
+            '<i data-lucide="heart-off" class="icon"></i> ' +
+            escapeHtml(message || 'Health data not available') +
+            '</div>';
+        refreshIcons();
+    }
+    
+    // Clear stats
+    ['health-steps', 'health-exercise', 'health-rhr', 'health-score-value'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '-';
+    });
+}
+
+/**
+ * Refresh health data (triggered by button)
+ */
+async function refreshHealthData() {
+    showToast('Refreshing health data...', 'info', 2000);
+    
+    try {
+        // First try to regenerate
+        const refreshResp = await fetch('/api/life/health/refresh', { method: 'POST' });
+        const refreshResult = await refreshResp.json();
+        
+        if (refreshResult.status === 'ok') {
+            showToast('Health data regenerated!', 'success');
+        }
+        
+        // Then reload
+        await loadHealthData();
+        
+    } catch (e) {
+        console.error('Health refresh error:', e);
+        showToast('Failed to refresh health data', 'error');
+    }
+}
+
+// =============================================================================
 // Life Balance Tab
 // =============================================================================
 
@@ -2215,6 +2405,10 @@ let lifeRadarChart = null;
  * Load life dashboard data
  */
 async function loadLifeDashboard() {
+    // Load health data first (real data)
+    loadHealthData();
+    
+    // Then try gamification data (may not exist yet)
     try {
         const resp = await fetch('/api/life/dashboard');
         lifeData = await resp.json();
@@ -3362,6 +3556,230 @@ function hideElement(id) {
 // Initialization
 // =============================================================================
 
+// =============================================================================
+// RSS/News Feed Functions
+// =============================================================================
+
+let rssCurrentFilter = 'unread';
+let rssCurrentCategory = '';
+
+/**
+ * Load RSS summary stats
+ */
+async function loadRssSummary() {
+    try {
+        const response = await fetch('/api/rss/summary');
+        const data = await response.json();
+        
+        if (data.status === 'ok') {
+            document.getElementById('status-rss').classList.remove('loading', 'error');
+            document.getElementById('status-rss').classList.add('ok');
+            
+            document.getElementById('rss-unread').textContent = data.total_unread || 0;
+            document.getElementById('rss-feeds').textContent = data.total_feeds || 0;
+            document.getElementById('rss-categories').textContent = data.categories || 0;
+            
+            document.getElementById('rss-status').innerHTML = icon('rss') + ' <span>Connected · ' + (data.total_unread || 0) + ' unread</span>';
+            document.getElementById('rss-offline').style.display = 'none';
+            
+            // Populate category filter
+            const select = document.getElementById('rss-category-filter');
+            select.innerHTML = '<option value="">All Categories</option>';
+            if (data.by_category) {
+                Object.entries(data.by_category).forEach(([cat, info]) => {
+                    select.innerHTML += '<option value="' + escapeHtml(cat) + '">' + escapeHtml(cat) + ' (' + info.unread + ')</option>';
+                });
+            }
+            
+            return data;
+        } else {
+            throw new Error(data.error || 'Unknown error');
+        }
+    } catch (e) {
+        console.error('RSS summary error:', e);
+        document.getElementById('status-rss').classList.remove('loading', 'ok');
+        document.getElementById('status-rss').classList.add('error');
+        document.getElementById('rss-status').innerHTML = icon('wifi-off') + ' <span>Offline</span>';
+        document.getElementById('rss-offline').style.display = 'block';
+        return null;
+    }
+}
+
+/**
+ * Load RSS entries
+ */
+async function loadRssEntries() {
+    const container = document.getElementById('rss-entries');
+    container.innerHTML = '<div class="skeleton"></div>';
+    
+    try {
+        let url = '/api/rss/entries?limit=100';
+        if (rssCurrentFilter === 'starred') {
+            url = '/api/rss/entries?status=read&limit=100'; // We'll filter starred client-side
+        } else if (rssCurrentFilter !== 'all') {
+            url += '&status=' + rssCurrentFilter;
+        }
+        if (rssCurrentCategory) {
+            // Note: category_id would need lookup, for now we filter client-side
+        }
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (data.status !== 'ok') {
+            throw new Error(data.error || 'Failed to load entries');
+        }
+        
+        let entries = data.entries || [];
+        
+        // Client-side filtering for starred
+        if (rssCurrentFilter === 'starred') {
+            entries = entries.filter(e => e.starred);
+        }
+        
+        // Update starred count
+        const starredCount = data.entries ? data.entries.filter(e => e.starred).length : 0;
+        document.getElementById('rss-starred').textContent = starredCount;
+        
+        if (entries.length === 0) {
+            container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">' + icon('inbox') + '</div><div class="empty-state-text">No entries found</div></div>';
+            refreshIcons();
+            return;
+        }
+        
+        // Group by category
+        const byCategory = {};
+        entries.forEach(entry => {
+            const cat = entry.feed?.category?.title || 'Uncategorized';
+            if (rssCurrentCategory && cat !== rssCurrentCategory) return;
+            if (!byCategory[cat]) byCategory[cat] = [];
+            byCategory[cat].push(entry);
+        });
+        
+        let html = '';
+        Object.entries(byCategory).forEach(([category, catEntries]) => {
+            html += '<div class="rss-category">';
+            html += '<div class="rss-category-header">' + icon('folder') + ' ' + escapeHtml(category) + ' <span class="rss-category-count">' + catEntries.length + '</span></div>';
+            html += '<div class="rss-entry-list">';
+            
+            catEntries.forEach(entry => {
+                const readingTime = entry.reading_time ? entry.reading_time + ' min' : '';
+                const timeAgo = formatTimeAgo(entry.published_at);
+                const starClass = entry.starred ? 'starred' : '';
+                
+                html += '<div class="rss-entry ' + (entry.status === 'read' ? 'read' : '') + '" data-id="' + entry.id + '">';
+                html += '<div class="rss-entry-main" onclick="openRssEntry(' + entry.id + ', \'' + escapeHtml(entry.url).replace(/'/g, "\\'") + '\')">';
+                html += '<div class="rss-entry-title">' + escapeHtml(entry.title) + '</div>';
+                html += '<div class="rss-entry-meta">';
+                html += '<span class="rss-entry-feed">' + escapeHtml(entry.feed?.title || 'Unknown') + '</span>';
+                html += '<span class="rss-entry-time">' + timeAgo + '</span>';
+                if (readingTime) html += '<span class="rss-entry-reading">' + readingTime + '</span>';
+                html += '</div>';
+                html += '</div>';
+                html += '<div class="rss-entry-actions">';
+                html += '<button class="rss-action-btn ' + starClass + '" onclick="toggleRssStar(' + entry.id + ')" title="Star">' + icon('star') + '</button>';
+                html += '<button class="rss-action-btn" onclick="markRssRead(' + entry.id + ')" title="Mark read">' + icon('check') + '</button>';
+                html += '</div>';
+                html += '</div>';
+            });
+            
+            html += '</div></div>';
+        });
+        
+        container.innerHTML = html;
+        refreshIcons();
+        
+    } catch (e) {
+        console.error('RSS entries error:', e);
+        container.innerHTML = '<div class="empty-state error"><div class="empty-state-icon">' + icon('alert-circle') + '</div><div class="empty-state-text">Failed to load entries</div></div>';
+        refreshIcons();
+    }
+}
+
+/**
+ * Format time ago
+ */
+function formatTimeAgo(dateStr) {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 60) return diffMins + 'm ago';
+    if (diffHours < 24) return diffHours + 'h ago';
+    if (diffDays < 7) return diffDays + 'd ago';
+    return formatDate(dateStr);
+}
+
+/**
+ * Filter RSS by status
+ */
+function filterRssStatus(status) {
+    rssCurrentFilter = status;
+    document.querySelectorAll('.rss-filter').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === status);
+    });
+    loadRssEntries();
+}
+
+/**
+ * Filter RSS by category
+ */
+function filterRssCategory(category) {
+    rssCurrentCategory = category;
+    loadRssEntries();
+}
+
+/**
+ * Open RSS entry in new tab and mark as read
+ */
+function openRssEntry(id, url) {
+    window.open(url, '_blank');
+    markRssRead(id);
+}
+
+/**
+ * Mark entry as read
+ */
+async function markRssRead(id) {
+    try {
+        await fetch('/api/rss/entries/' + id + '/read', { method: 'PUT' });
+        const entry = document.querySelector('.rss-entry[data-id="' + id + '"]');
+        if (entry) entry.classList.add('read');
+        
+        // Update unread count
+        const unreadEl = document.getElementById('rss-unread');
+        const current = parseInt(unreadEl.textContent) || 0;
+        if (current > 0) unreadEl.textContent = current - 1;
+    } catch (e) {
+        console.error('Mark read error:', e);
+    }
+}
+
+/**
+ * Toggle star on entry
+ */
+async function toggleRssStar(id) {
+    try {
+        await fetch('/api/rss/entries/' + id + '/star', { method: 'PUT' });
+        const btn = document.querySelector('.rss-entry[data-id="' + id + '"] .rss-action-btn');
+        if (btn) btn.classList.toggle('starred');
+    } catch (e) {
+        console.error('Star toggle error:', e);
+    }
+}
+
+/**
+ * Refresh RSS data
+ */
+async function refreshRss() {
+    await loadRssSummary();
+    await loadRssEntries();
+}
+
 function init() {
     initModal();
     initKeyboardShortcuts();
@@ -3432,6 +3850,9 @@ function initKeyboardShortcuts() {
         } else if (e.key === '6') {
             e.preventDefault();
             switchTab('financial');
+        } else if (e.key === '7') {
+            e.preventDefault();
+            switchTab('rss');
         }
 
         // ? - Show help

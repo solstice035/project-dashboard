@@ -3734,3 +3734,299 @@ kbd {
         align-items: flex-start;
     }
 }
+
+/* =============================================================================
+   Health Insights Styles
+   ============================================================================= */
+
+.health-insights-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.insight-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border-radius: var(--radius);
+    background: hsl(var(--card) / 0.5);
+    border-left: 3px solid hsl(var(--border));
+}
+
+.insight-item.insight-positive {
+    border-left-color: hsl(var(--success));
+    background: hsl(var(--success) / 0.1);
+}
+
+.insight-item.insight-warning {
+    border-left-color: hsl(var(--warning));
+    background: hsl(var(--warning) / 0.1);
+}
+
+.insight-item.insight-neutral {
+    border-left-color: hsl(var(--primary));
+}
+
+.insight-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.insight-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.insight-content strong {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: hsl(var(--foreground));
+}
+
+.insight-content span {
+    font-size: var(--text-xs);
+    color: hsl(var(--muted-foreground));
+}
+
+/* Stat card success/warning states */
+.stat-card.stat-success {
+    border-color: hsl(var(--success) / 0.5);
+    background: hsl(var(--success) / 0.1);
+}
+
+.stat-card.stat-success .stat-value {
+    color: hsl(var(--success));
+}
+
+.stat-card.stat-warning {
+    border-color: hsl(var(--warning) / 0.5);
+    background: hsl(var(--warning) / 0.1);
+}
+
+.stat-card.stat-warning .stat-value {
+    color: hsl(var(--warning));
+}
+
+.stat-card.stat-danger {
+    border-color: hsl(var(--destructive) / 0.5);
+    background: hsl(var(--destructive) / 0.1);
+}
+
+.stat-card.stat-danger .stat-value {
+    color: hsl(var(--destructive));
+}
+
+/* Health stats row specific */
+#health-stats-row {
+    margin-bottom: var(--space-4);
+}
+
+/* =============================================================================
+   RSS/News Tab Styles
+   ============================================================================= */
+
+.rss-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-3) var(--space-4);
+    background: hsl(var(--card));
+    border-radius: var(--radius);
+    margin-bottom: var(--space-4);
+}
+
+.rss-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: hsl(var(--muted-foreground));
+}
+
+.rss-status .icon {
+    width: 16px;
+    height: 16px;
+}
+
+.rss-actions {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.rss-filter-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-4);
+    gap: var(--space-3);
+}
+
+.rss-filter-group {
+    display: flex;
+    gap: var(--space-1);
+    background: hsl(var(--muted));
+    padding: var(--space-1);
+    border-radius: var(--radius);
+}
+
+.rss-filter {
+    padding: var(--space-2) var(--space-3);
+    background: transparent;
+    border: none;
+    border-radius: calc(var(--radius) - 2px);
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    font-size: var(--text-sm);
+    transition: all 0.2s ease;
+}
+
+.rss-filter:hover {
+    color: hsl(var(--foreground));
+}
+
+.rss-filter.active {
+    background: hsl(var(--card));
+    color: hsl(var(--foreground));
+    box-shadow: var(--shadow-sm);
+}
+
+.rss-category-select {
+    padding: var(--space-2) var(--space-3);
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    color: hsl(var(--foreground));
+    font-size: var(--text-sm);
+    min-width: 150px;
+}
+
+.rss-entries {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.rss-category {
+    background: hsl(var(--card));
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.rss-category-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    background: hsl(var(--muted));
+    font-weight: 600;
+    font-size: var(--text-sm);
+}
+
+.rss-category-header .icon {
+    width: 14px;
+    height: 14px;
+    opacity: 0.7;
+}
+
+.rss-category-count {
+    margin-left: auto;
+    font-size: var(--text-xs);
+    color: hsl(var(--muted-foreground));
+    background: hsl(var(--background));
+    padding: var(--space-1) var(--space-2);
+    border-radius: 9999px;
+}
+
+.rss-entry-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.rss-entry {
+    display: flex;
+    align-items: center;
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid hsl(var(--border) / 0.5);
+    transition: background 0.2s ease;
+}
+
+.rss-entry:last-child {
+    border-bottom: none;
+}
+
+.rss-entry:hover {
+    background: hsl(var(--muted) / 0.5);
+}
+
+.rss-entry.read {
+    opacity: 0.6;
+}
+
+.rss-entry.read .rss-entry-title {
+    font-weight: 400;
+}
+
+.rss-entry-main {
+    flex: 1;
+    cursor: pointer;
+    min-width: 0;
+}
+
+.rss-entry-title {
+    font-weight: 500;
+    font-size: var(--text-sm);
+    color: hsl(var(--foreground));
+    margin-bottom: var(--space-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rss-entry-meta {
+    display: flex;
+    gap: var(--space-3);
+    font-size: var(--text-xs);
+    color: hsl(var(--muted-foreground));
+}
+
+.rss-entry-feed {
+    font-weight: 500;
+}
+
+.rss-entry-actions {
+    display: flex;
+    gap: var(--space-1);
+    margin-left: var(--space-3);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.rss-entry:hover .rss-entry-actions {
+    opacity: 1;
+}
+
+.rss-action-btn {
+    padding: var(--space-1);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius);
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.rss-action-btn:hover {
+    background: hsl(var(--muted));
+    color: hsl(var(--foreground));
+}
+
+.rss-action-btn.starred {
+    color: hsl(var(--warning));
+}
+
+.rss-action-btn .icon {
+    width: 14px;
+    height: 14px;
+}

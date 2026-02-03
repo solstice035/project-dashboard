@@ -42,6 +42,9 @@
                 <button class="tab" data-tab="financial">
                     <i data-lucide="wallet" class="icon"></i> Financial
                 </button>
+                <button class="tab" data-tab="rss">
+                    <i data-lucide="rss" class="icon"></i> News
+                </button>
             </nav>
 
             <div class="header-right">
@@ -63,6 +66,7 @@
                     <div class="status-dot loading" id="status-todoist" title="Todoist"></div>
                     <div class="status-dot loading" id="status-kanban" title="Kanban"></div>
                     <div class="status-dot loading" id="status-linear" title="Linear"></div>
+                    <div class="status-dot loading" id="status-rss" title="RSS/News"></div>
                 </div>
                 <button class="refresh-btn" id="refresh-btn" onclick="refreshAll()">
                     <i data-lucide="refresh-cw" class="icon"></i>
@@ -406,6 +410,39 @@
                     <i data-lucide="brain" class="icon"></i>
                     <span>Meditate</span>
                 </button>
+            </div>
+
+            <!-- Apple Health Stats Row -->
+            <div class="stat-grid" id="health-stats-row">
+                <div class="stat-card" id="health-score-card">
+                    <div class="stat-value" id="health-score-value">-</div>
+                    <div class="stat-label">Health Score</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="health-steps">-</div>
+                    <div class="stat-label">Steps</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="health-exercise">-</div>
+                    <div class="stat-label">Exercise</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="health-rhr">-</div>
+                    <div class="stat-label">Resting HR</div>
+                </div>
+            </div>
+
+            <!-- Health Insights Banner -->
+            <div class="card" id="health-insights-card" style="margin-bottom: 1rem;">
+                <div class="card-header">
+                    <span class="card-title"><i data-lucide="heart-pulse" class="icon"></i> Health Insights</span>
+                    <button class="btn-ghost" onclick="refreshHealthData()" title="Refresh health data">
+                        <i data-lucide="refresh-cw" class="icon"></i>
+                    </button>
+                </div>
+                <div class="card-content" id="health-insights-content">
+                    <div class="skeleton"></div>
+                </div>
             </div>
 
             <div class="life-grid">
@@ -855,6 +892,78 @@
                             The Monzo analysis backend needs to be started.<br>
                             <code style="font-size: 0.8rem; background: var(--bg-secondary); padding: 0.5rem; border-radius: 4px; display: inline-block; margin-top: 0.5rem;">
                                 cd ~/dev/dashboards/monzo-analysis && docker compose up -d
+                            </code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RSS/News Tab -->
+        <div id="tab-rss" class="tab-content">
+            <!-- RSS Header -->
+            <div class="rss-header">
+                <div class="rss-status" id="rss-status">
+                    <i data-lucide="rss" class="icon"></i>
+                    <span>Connecting to Miniflux...</span>
+                </div>
+                <div class="rss-actions">
+                    <a href="http://localhost:8070" target="_blank" class="btn-secondary btn-sm" title="Open Miniflux">
+                        <i data-lucide="external-link" class="icon"></i> Miniflux
+                    </a>
+                    <button class="btn-secondary btn-sm" onclick="refreshRss()" title="Refresh feeds">
+                        <i data-lucide="refresh-cw" class="icon"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Summary Stats Row -->
+            <div class="stat-grid" id="rss-stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="rss-unread">-</div>
+                    <div class="stat-label">Unread</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="rss-feeds">-</div>
+                    <div class="stat-label">Feeds</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="rss-categories">-</div>
+                    <div class="stat-label">Categories</div>
+                </div>
+                <div class="stat-card clickable" onclick="filterRssStatus('starred')">
+                    <div class="stat-value" id="rss-starred">-</div>
+                    <div class="stat-label">Starred</div>
+                </div>
+            </div>
+
+            <!-- Filter Bar -->
+            <div class="rss-filter-bar">
+                <div class="rss-filter-group">
+                    <button class="rss-filter active" data-filter="unread" onclick="filterRssStatus('unread')">Unread</button>
+                    <button class="rss-filter" data-filter="all" onclick="filterRssStatus('all')">All</button>
+                    <button class="rss-filter" data-filter="starred" onclick="filterRssStatus('starred')">Starred</button>
+                </div>
+                <select id="rss-category-filter" class="rss-category-select" onchange="filterRssCategory(this.value)">
+                    <option value="">All Categories</option>
+                </select>
+            </div>
+
+            <!-- Entries by Category -->
+            <div id="rss-entries" class="rss-entries">
+                <div class="skeleton"></div>
+            </div>
+
+            <!-- Offline Message -->
+            <div class="card" id="rss-offline" style="display: none;">
+                <div class="card-content">
+                    <div class="empty-state">
+                        <div class="empty-state-icon"><i data-lucide="wifi-off" class="icon"></i></div>
+                        <div class="empty-state-text">Miniflux is not running</div>
+                        <div class="empty-state-hint">
+                            Start Miniflux with:<br>
+                            <code style="font-size: 0.8rem; background: var(--bg-secondary); padding: 0.5rem; border-radius: 4px; display: inline-block; margin-top: 0.5rem;">
+                                brew services start miniflux
                             </code>
                         </div>
                     </div>
