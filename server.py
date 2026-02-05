@@ -3757,6 +3757,7 @@ def sync_all_xp():
         'todoist': 0,
         'health': 0,
         'sprints': 0,
+        'git': 0,
         'total': 0
     }
     details = []
@@ -3851,6 +3852,30 @@ def sync_all_xp():
                     ))
             except Exception as e:
                 logger.warning(f"Sprint XP calculation error: {e}")
+        
+        # 4. Git commits from monitored repos
+        try:
+            git_data = fetch_git_status()
+            if git_data.get('status') == Status.OK:
+                total_commits = sum(r.get('commit_count', 0) for r in git_data.get('repos', []))
+                if total_commits > 0:
+                    git_xp = min(total_commits * 5, 100)  # 5 XP per commit, max 100
+                    xp_awarded['git'] = git_xp
+                    details.append(f'{total_commits} git commits (+{git_xp} XP)')
+                    
+                    cur.execute("""
+                        INSERT INTO life_xp (area_code, date, xp_earned, activities)
+                        VALUES ('work', %s, %s, %s::jsonb)
+                        ON CONFLICT (area_code, date) DO UPDATE SET
+                            xp_earned = GREATEST(life_xp.xp_earned, EXCLUDED.xp_earned),
+                            activities = life_xp.activities || EXCLUDED.activities
+                    """, (
+                        today,
+                        git_xp,
+                        json.dumps([{'activity': 'git_commits', 'count': total_commits, 'xp': git_xp}])
+                    ))
+        except Exception as e:
+            logger.warning(f"Git XP calculation error: {e}")
         
         # Update totals
         total_xp = sum(xp_awarded.values())
