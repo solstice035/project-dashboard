@@ -3855,7 +3855,7 @@ def sync_all_xp():
         
         # 4. Git commits from monitored repos
         try:
-            git_data = fetch_git_status()
+            git_data = fetch_git_repos()
             if git_data.get('status') == Status.OK:
                 total_commits = sum(r.get('commit_count', 0) for r in git_data.get('repos', []))
                 if total_commits > 0:
