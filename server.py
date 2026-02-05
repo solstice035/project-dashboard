@@ -3707,6 +3707,227 @@ def rss_summary():
 
 
 # =============================================================================
+# XP Gamification - Automatic Calculation
+# =============================================================================
+
+def get_todoist_completed_today():
+    """Get count of Todoist tasks completed today using Sync API."""
+    token = config['todoist'].get('token', '')
+    if not token:
+        return 0
+    
+    try:
+        headers = {'Authorization': f'Bearer {token}'}
+        
+        # Use Sync API to get completed items from today
+        # Note: completed/get_all endpoint gives completed items
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        response = requests.get(
+            'https://api.todoist.com/sync/v9/completed/get_all',
+            headers=headers,
+            params={
+                'since': today_start.isoformat() + 'Z',
+                'limit': 50
+            },
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            items = data.get('items', [])
+            return len(items)
+        else:
+            logger.warning(f"Todoist completed fetch failed: {response.status_code}")
+            return 0
+            
+    except Exception as e:
+        logger.error(f"Error fetching Todoist completed: {e}")
+        return 0
+
+
+@app.route('/api/life/xp/sync', methods=['POST'])
+def sync_all_xp():
+    """Sync XP from all automatic sources (Todoist, Health, Sprints)."""
+    if not DB_AVAILABLE:
+        return jsonify({'error': 'Database not available'}), 503
+    
+    today = date.today()
+    xp_awarded = {
+        'todoist': 0,
+        'health': 0,
+        'sprints': 0,
+        'total': 0
+    }
+    details = []
+    
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # 1. Todoist completed tasks
+        completed_count = get_todoist_completed_today()
+        if completed_count > 0:
+            todoist_xp = min(completed_count * 10, 100)  # 10 XP per task, max 100
+            xp_awarded['todoist'] = todoist_xp
+            details.append(f'{completed_count} tasks completed (+{todoist_xp} XP)')
+            
+            # Upsert to life_xp for 'work' area
+            cur.execute("""
+                INSERT INTO life_xp (area_code, date, xp_earned, activities)
+                VALUES ('work', %s, %s, %s::jsonb)
+                ON CONFLICT (area_code, date) DO UPDATE SET
+                    xp_earned = GREATEST(life_xp.xp_earned, EXCLUDED.xp_earned),
+                    activities = life_xp.activities || EXCLUDED.activities
+            """, (
+                today, 
+                todoist_xp,
+                json.dumps([{'activity': 'todoist_tasks', 'count': completed_count, 'xp': todoist_xp}])
+            ))
+        
+        # 2. Health metrics from healthAnalytics
+        health_path = Path(get_health_data_path())
+        if health_path.exists():
+            try:
+                goals_file = health_path / 'goals_progress.json'
+                if goals_file.exists():
+                    with open(goals_file) as f:
+                        goals = json.load(f)
+                    
+                    health_xp = 0
+                    goal_details = []
+                    
+                    # Check if goals are met (most recent day)
+                    if goals.get('steps_goal', [0])[-1] == 1:
+                        health_xp += 25
+                        goal_details.append('steps')
+                    if goals.get('exercise_goal', [0])[-1] == 1:
+                        health_xp += 30
+                        goal_details.append('exercise')
+                    if goals.get('stand_goal', [0])[-1] == 1:
+                        health_xp += 15
+                        goal_details.append('stand')
+                    
+                    if health_xp > 0:
+                        xp_awarded['health'] = health_xp
+                        details.append(f'Health goals ({", ".join(goal_details)}) (+{health_xp} XP)')
+                        
+                        cur.execute("""
+                            INSERT INTO life_xp (area_code, date, xp_earned, activities)
+                            VALUES ('health', %s, %s, %s::jsonb)
+                            ON CONFLICT (area_code, date) DO UPDATE SET
+                                xp_earned = GREATEST(life_xp.xp_earned, EXCLUDED.xp_earned),
+                                activities = life_xp.activities || EXCLUDED.activities
+                        """, (
+                            today,
+                            health_xp,
+                            json.dumps([{'activity': 'health_goals', 'goals': goal_details, 'xp': health_xp}])
+                        ))
+            except Exception as e:
+                logger.warning(f"Health XP calculation error: {e}")
+        
+        # 3. Today's completed overnight sprint
+        sprint_log_path = Path(config.get('integrations', {}).get('sprint_logs', '~/obsidian/claude/1-Projects/0-Dev/01-JeeveSprints')).expanduser()
+        today_sprint = sprint_log_path / f'{today}.md'
+        if today_sprint.exists():
+            try:
+                content = today_sprint.read_text()
+                if 'status: completed' in content.lower():
+                    sprint_xp = 100
+                    xp_awarded['sprints'] = sprint_xp
+                    details.append(f'Overnight sprint completed (+{sprint_xp} XP)')
+                    
+                    cur.execute("""
+                        INSERT INTO life_xp (area_code, date, xp_earned, activities)
+                        VALUES ('work', %s, %s, %s::jsonb)
+                        ON CONFLICT (area_code, date) DO UPDATE SET
+                            xp_earned = life_xp.xp_earned + EXCLUDED.xp_earned,
+                            activities = life_xp.activities || EXCLUDED.activities
+                    """, (
+                        today,
+                        sprint_xp,
+                        json.dumps([{'activity': 'overnight_sprint', 'xp': sprint_xp}])
+                    ))
+            except Exception as e:
+                logger.warning(f"Sprint XP calculation error: {e}")
+        
+        # Update totals
+        total_xp = sum(xp_awarded.values())
+        xp_awarded['total'] = total_xp
+        
+        if total_xp > 0:
+            cur.execute("""
+                UPDATE life_totals 
+                SET total_xp = total_xp + %s, updated_at = NOW()
+                WHERE area_code = 'total'
+            """, (total_xp,))
+        
+        conn.commit()
+        
+        # Check for achievements
+        achievements = check_achievements()
+        
+        return jsonify({
+            'status': Status.OK,
+            'xp_awarded': xp_awarded,
+            'details': details,
+            'new_achievements': [{'code': a['code'], 'name': a['name']} for a in achievements] if achievements else []
+        })
+        
+    except Exception as e:
+        logger.error(f"XP sync error: {e}")
+        if conn:
+            conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/life/stats/today')
+def get_today_stats():
+    """Get today's XP stats for the Life Pulse widget."""
+    if not DB_AVAILABLE:
+        return jsonify({'today_xp': 0, 'level': 1})
+    
+    conn = None
+    try:
+        conn = get_dict_db_connection()
+        cur = conn.cursor()
+        today = date.today()
+        
+        # Get today's total XP
+        cur.execute("""
+            SELECT COALESCE(SUM(xp_earned), 0) as today_xp
+            FROM life_xp WHERE date = %s
+        """, (today,))
+        today_xp = cur.fetchone()['today_xp']
+        
+        # Get overall level
+        cur.execute("""
+            SELECT COALESCE(level, 1) as level, COALESCE(total_xp, 0) as total_xp
+            FROM life_totals WHERE area_code = 'total'
+        """)
+        row = cur.fetchone()
+        level = row['level'] if row else 1
+        total_xp = row['total_xp'] if row else 0
+        
+        return jsonify({
+            'today_xp': today_xp,
+            'level': level,
+            'total_xp': total_xp
+        })
+        
+    except Exception as e:
+        logger.error(f"Today stats error: {e}")
+        return jsonify({'today_xp': 0, 'level': 1})
+    finally:
+        if conn:
+            conn.close()
+
+
+# =============================================================================
 # Main
 # =============================================================================
 

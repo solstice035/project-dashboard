@@ -3883,3 +3883,264 @@ function showKeyboardHelp() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+/* =============================================================================
+   MOBILE RESPONSIVE FUNCTIONALITY
+   Added: 2026-02-03 Overnight Sprint
+   ============================================================================= */
+
+/**
+ * Check if device is mobile (touch device or small screen)
+ */
+function isMobileDevice() {
+    return window.innerWidth <= 768 || 'ontouchstart' in window;
+}
+
+/**
+ * Initialize mobile-specific features
+ */
+function initMobileFeatures() {
+    if (!isMobileDevice()) return;
+    
+    // Add collapse icons to cards that don't have them
+    var cards = document.querySelectorAll('.card');
+    cards.forEach(function(card) {
+        var header = card.querySelector('.card-header');
+        if (!header) return;
+        
+        // Skip if already has collapse icon
+        if (header.querySelector('.collapse-icon')) return;
+        
+        // Skip certain cards that shouldn't collapse
+        var cardId = card.id || '';
+        if (cardId.includes('modal') || cardId.includes('attention')) return;
+        
+        // Add chevron icon for collapse indicator
+        var chevron = document.createElement('i');
+        chevron.setAttribute('data-lucide', 'chevron-down');
+        chevron.className = 'icon collapse-icon';
+        header.appendChild(chevron);
+        
+        // Make header clickable for toggle
+        header.addEventListener('click', function(e) {
+            // Don't toggle if clicking a button or link inside header
+            if (e.target.closest('button') || e.target.closest('a')) return;
+            
+            toggleCardCollapse(card);
+        });
+    });
+    
+    // Re-initialize Lucide icons for new chevrons
+    if (window.lucide) {
+        lucide.createIcons();
+    }
+}
+
+/**
+ * Toggle card collapse state
+ */
+function toggleCardCollapse(card) {
+    if (!card) return;
+    
+    var isCollapsed = card.classList.contains('collapsed');
+    
+    if (isCollapsed) {
+        card.classList.remove('collapsed');
+        // Store state
+        if (card.id) {
+            localStorage.setItem('card-' + card.id + '-collapsed', 'false');
+        }
+    } else {
+        card.classList.add('collapsed');
+        // Store state
+        if (card.id) {
+            localStorage.setItem('card-' + card.id + '-collapsed', 'true');
+        }
+    }
+}
+
+/**
+ * Restore collapsed states from localStorage
+ */
+function restoreCardStates() {
+    if (!isMobileDevice()) return;
+    
+    var cards = document.querySelectorAll('.card[id]');
+    cards.forEach(function(card) {
+        var state = localStorage.getItem('card-' + card.id + '-collapsed');
+        if (state === 'true') {
+            card.classList.add('collapsed');
+        }
+    });
+}
+
+/**
+ * Handle orientation change
+ */
+function handleOrientationChange() {
+    // Recalculate layouts after orientation change
+    setTimeout(function() {
+        if (window.lucide) {
+            lucide.createIcons();
+        }
+    }, 100);
+}
+
+/**
+ * Initialize touch-specific behaviors
+ */
+function initTouchBehaviors() {
+    if (!('ontouchstart' in window)) return;
+    
+    // Add touch feedback class on touch
+    document.addEventListener('touchstart', function(e) {
+        var target = e.target.closest('.card-header, .tab, .btn-primary, .btn-secondary, .task-item');
+        if (target) {
+            target.classList.add('touch-active');
+        }
+    }, { passive: true });
+    
+    document.addEventListener('touchend', function(e) {
+        var active = document.querySelectorAll('.touch-active');
+        active.forEach(function(el) {
+            el.classList.remove('touch-active');
+        });
+    }, { passive: true });
+}
+
+/**
+ * Handle window resize - adjust for mobile/desktop transitions
+ */
+var resizeTimeout;
+function handleResize() {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(function() {
+        if (isMobileDevice()) {
+            initMobileFeatures();
+        } else {
+            // Remove collapsed states on desktop
+            document.querySelectorAll('.card.collapsed').forEach(function(card) {
+                card.classList.remove('collapsed');
+            });
+        }
+    }, 250);
+}
+
+// Add to existing init or DOMContentLoaded
+document.addEventListener('DOMContentLoaded', function() {
+    initMobileFeatures();
+    restoreCardStates();
+    initTouchBehaviors();
+    
+    // Listen for resize and orientation changes
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleOrientationChange);
+});
+
+/* =============================================================================
+   Enhanced XP Gamification
+   Added: 2026-02-03 Overnight Sprint
+   ============================================================================= */
+
+/**
+ * Sync XP from all automatic sources on dashboard load
+ */
+async function syncAutoXp() {
+    try {
+        const resp = await fetch('/api/life/xp/sync', { method: 'POST' });
+        const data = await resp.json();
+        
+        if (data.status === 'ok' && data.xp_awarded && data.xp_awarded.total > 0) {
+            console.log('XP synced:', data.xp_awarded);
+            
+            // Show notifications for new XP
+            if (data.details && data.details.length > 0) {
+                data.details.forEach(function(detail) {
+                    showXpNotification(0, detail);
+                });
+            }
+            
+            // Show achievement notifications
+            if (data.new_achievements && data.new_achievements.length > 0) {
+                data.new_achievements.forEach(function(achievement) {
+                    showAchievementUnlock(achievement);
+                });
+            }
+            
+            // Update Life Pulse widget
+            updateLifePulseFromSync(data);
+        }
+    } catch (e) {
+        console.error('Auto XP sync error:', e);
+    }
+}
+
+/**
+ * Update Life Pulse widget with today's XP
+ */
+async function refreshLifePulse() {
+    try {
+        const resp = await fetch('/api/life/stats/today');
+        const data = await resp.json();
+        
+        var lifePulseXp = document.getElementById('life-pulse-xp');
+        if (lifePulseXp) {
+            lifePulseXp.textContent = '+' + (data.today_xp || 0);
+            
+            // Add animation class if XP > 0
+            if (data.today_xp > 0) {
+                lifePulseXp.classList.add('has-xp');
+            }
+        }
+    } catch (e) {
+        console.error('Life pulse refresh error:', e);
+    }
+}
+
+/**
+ * Update Life Pulse from XP sync response
+ */
+function updateLifePulseFromSync(data) {
+    var lifePulseXp = document.getElementById('life-pulse-xp');
+    if (lifePulseXp && data.xp_awarded) {
+        // Trigger a refresh to get accurate total
+        refreshLifePulse();
+    }
+}
+
+/**
+ * Show achievement unlock notification
+ */
+function showAchievementUnlock(achievement) {
+    var notification = document.createElement('div');
+    notification.className = 'achievement-notification';
+    notification.innerHTML = '<div class="achievement-icon">🏆</div>' +
+        '<div class="achievement-text">' +
+        '<div class="achievement-title">Achievement Unlocked!</div>' +
+        '<div class="achievement-name">' + escapeHtml(achievement.name) + '</div>' +
+        '</div>';
+    
+    document.body.appendChild(notification);
+    
+    // Animate in
+    setTimeout(function() {
+        notification.classList.add('show');
+    }, 10);
+    
+    // Remove after delay
+    setTimeout(function() {
+        notification.classList.remove('show');
+        setTimeout(function() {
+            notification.remove();
+        }, 300);
+    }, 4000);
+}
+
+// Call auto XP sync on page load (after main init)
+document.addEventListener('DOMContentLoaded', function() {
+    // Delay XP sync to not block initial load
+    setTimeout(function() {
+        syncAutoXp();
+        refreshLifePulse();
+    }, 2000);
+});
